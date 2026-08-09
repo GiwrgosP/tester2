@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Test Automation Framework — UML Class Diagram</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0f172a;
+    font-family: 'Courier New', 'Consolas', monospace;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    user-select: none;
+  }
+  #toolbar {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(15,23,42,0.92);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 8px 16px;
+    z-index: 100;
+    backdrop-filter: blur(8px);
+  }
+  #toolbar span {
+    color: #94a3b8;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  #toolbar button {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #e2e8f0;
+    border-radius: 6px;
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    transition: background 0.15s;
+  }
+  #toolbar button:hover { background: rgba(255,255,255,0.16); }
+  #title-bar {
+    position: fixed;
+    top: 12px;
+    left: 16px;
+    color: #f1f5f9;
+    font-size: 13px;
+    letter-spacing: 0.05em;
+    font-weight: bold;
+    z-index: 100;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+  }
+  #canvas-wrap {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    cursor: grab;
+  }
+  #canvas-wrap:active { cursor: grabbing; }
+  svg {
+    display: block;
+  }
+  .cls-header { font-weight: bold; font-size: 11.5px; }
+  .cls-role { font-size: 9.5px; font-style: italic; opacity: 0.82; }
+  .cls-attr { font-size: 9px; font-family: 'Courier New', monospace; }
+  .cls-method { font-size: 9px; font-family: 'Courier New', monospace; }
+  .divider { stroke: rgba(0,0,0,0.18); stroke-width: 1; }
+  .rel-line { fill: none; stroke-width: 1.6; }
+  .rel-label { font-size: 9px; fill: #94a3b8; font-family: 'Courier New', monospace; }
+  .mult-label { font-size: 8.5px; fill: #cbd5e1; font-family: 'Courier New', monospace; }
+</style>
+</head>
+<body>
+<div id="title-bar">ERP Test Automation Framework</div>
+<div id="toolbar">
+  <button id="zoomIn">+</button>
+  <button id="zoomOut">-</button>
+  <button id="resetView">Reset</button>
+  <span id="zoomLabel">100%</span>
+  <span style="margin-left:8px;color:#64748b;">| Drag to pan &nbsp; Scroll to zoom</span>
+</div>
+<div id="canvas-wrap">
+<svg id="main-svg" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+  <defs>
+    <!-- Arrow marker -->
+    <marker id="arrow" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#94a3b8"/>
+    </marker>
+    <!-- Solid diamond (composition) -->
+    <marker id="diamond-solid" markerWidth="12" markerHeight="8" refX="0" refY="4" orient="auto">
+      <polygon points="0 4, 6 0, 12 4, 6 8" fill="#475569"/>
+    </marker>
+    <!-- Hollow diamond (aggregation) -->
+    <marker id="diamond-hollow" markerWidth="12" markerHeight="8" refX="0" refY="4" orient="auto">
+      <polygon points="0 4, 6 0, 12 4, 6 8" fill="#0f172a" stroke="#94a3b8" stroke-width="1.2"/>
+    </marker>
+    <!-- Arrow at end -->
+    <marker id="arrow-end" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#94a3b8"/>
+    </marker>
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="rgba(0,0,0,0.45)"/>
+    </filter>
+  </defs>
+  <g id="diagram">
+    <!-- background grid -->
+    <rect width="4800" height="3800" fill="#0f172a"/>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+    </pattern>
+    <rect width="4800" height="3800" fill="url(#grid)"/>
+  </g>
+</svg>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  DATA MODEL
+// ─────────────────────────────────────────────
+const COLORS = {
+  orchestrator: { bg: '#FDE68A', header: '#F59E0B', text: '#78350F', divider: '#F59E0B44' },
+  configuration: { bg: '#FDBA74', header: '#EA580C', text: '#7C2D12', divider: '#EA580C44' },
+  domain:        { bg: '#93C5FD', header: '#2563EB', text: '#1e3a5f', divider: '#2563EB44' },
+  results:       { bg: '#86EFAC', header: '#16A34A', text: '#14532d', divider: '#16A34A44' },
+  storage:       { bg: '#C4B5FD', header: '#7C3AED', text: '#2e1065', divider: '#7C3AED44' },
+};
+
+const BOX_W = 210;
+const PAD = 10;
+const LINE_H = 13;
+const SECTION_PAD = 8;
+
+const classes = [
+  // ── ORCHESTRATOR ──
+  {
+    id: 'test_Cl',
+    name: 'test_Cl',
+    role: '<<Orchestrator>>',
+    layer: 'orchestrator',
+    x: 1150, y: 60,
+    attrs: [
+      'test_Id: int',
+      'test_Name: string',
+      'test_Description: string',
+      'test_Status: enum',
+      'env_Config: env_Config_Class',
+      'scenarios_List: List<scenario_Cl>',
+      'login_Credentials: login_Credentials_Class',
+      'test_Results: test_Result_Class',
+      'execution_Timestamp: datetime',
+    ],
+    methods: [
+      'set_Test(): void',
+      'get_Test(): test_Cl',
+      'execute_Test(): void',
+      'show_Test_Results(): test_Result_Class',
+      'save_Test_Results(): void',
+      'generate_Test_Report(): Report',
+      'run_All_Scenarios(): void',
+    ],
+  },
+
+  // ── CONFIGURATION ──
+  {
+    id: 'env_Config_Class',
+    name: 'env_Config_Class',
+    role: '<<Configuration>>',
+    layer: 'configuration',
+    x: 280, y: 560,
+    attrs: [
+      'env_Id: int',
+      'device_Type: device_Type_Class',
+      'browser_Type: browser_Type_Class',
+      'web_App_Url: string',
+      'login_Credentials: login_Credentials_Class',
+      'viewport_Size: string',
+      'timeout_Settings: int',
+      'headless_Mode: boolean',
+    ],
+    methods: [
+      'set_Env(): void',
+      'get_Env(): env_Config_Class',
+      'validate_Config(): boolean',
+      'to_Json(): string',
+      'from_Json(): env_Config_Class',
+    ],
+  },
+  {
+    id: 'device_Type_Class',
+    name: 'device_Type_Class',
+    role: '<<Configuration>>',
+    layer: 'configuration',
+    x: 30, y: 1080,
+    attrs: [
+      'device_Id: int',
+      'device_Type: enum{mobile,desktop,tablet}',
+      'screen_Resolution: string',
+      'screen_Orientation: enum{portrait,landscape}',
+      'user_Agent: string',
+      'touch_Enabled: boolean',
+    ],
+    methods: [
+      'set_Device(): void',
+      'get_Device(): device_Type_Class',
+      'get_Available_Devices(): List<string>',
+      'to_Json(): string',
+      'from_Json(): device_Type_Class',
+    ],
+  },
+  {
+    id: 'browser_Type_Class',
+    name: 'browser_Type_Class',
+    role: '<<Configuration>>',
+    layer: 'configuration',
+    x: 280, y: 1080,
+    attrs: [
+      'browser_Id: int',
+      'browser_Type: enum{chrome,firefox,safari,edge}',
+      'browser_Version: string',
+      'browser_Options: Map',
+      'headless_Mode: boolean',
+      'proxy_Settings: string',
+    ],
+    methods: [
+      'set_Browser(): void',
+      'get_Browser(): browser_Type_Class',
+      'get_Available_Browsers(): List<string>',
+      'to_Json(): string',
+      'from_Json(): browser_Type_Class',
+    ],
+  },
+  {
+    id: 'login_Credentials_Class',
+    name: 'login_Credentials_Class',
+    role: '<<Configuration>>',
+    layer: 'configuration',
+    x: 530, y: 1080,
+    attrs: [
+      'cred_Id: int',
+      'username: string',
+      'password: string',
+      'login_Url: string',
+      'auth_Type: enum{basic,form,oauth}',
+      'two_Factor_Code: string',
+    ],
+    methods: [
+      'set_Credentials(): void',
+      'get_Credentials(): login_Credentials_Class',
+      'validate_Credentials(): boolean',
+      'perform_Login(): boolean',
+      'to_Json(): string',
+      'from_Json(): login_Credentials_Class',
+    ],
+  },
+
+  // ── DOMAIN CORE ──
+  {
+    id: 'scenario_Cl',
+    name: 'scenario_Cl',
+    role: '<<Domain Core>>',
+    layer: 'domain',
+    x: 900, y: 560,
+    attrs: [
+      'scenario_Id: int',
+      'scenario_Name: string',
+      'scenario_Description: string',
+      'steps_List: List<step_Cl>',
+      'nested_Scenarios: List<scenario_Cl>',
+      'assertions_List: List<assertion_Cl>',
+      'scenario_Status: enum',
+      'scenario_Results: List<assertion_Result_Cl>',
+      'execution_Order: int',
+    ],
+    methods: [
+      'set_Steps_List(): void',
+      'get_Results_List(): List',
+      'add_Step(step_Cl): void',
+      'add_Scenario(scenario_Cl): void',
+      'add_Assertion(assertion_Cl): void',
+      'remove_Step(int): void',
+      'execute_Scenario(): void',
+      'save_Scenario(): void',
+      'load_Scenario(int): scenario_Cl',
+      'to_Json(): string',
+      'from_Json(): scenario_Cl',
+    ],
+  },
+  {
+    id: 'step_Cl',
+    name: 'step_Cl',
+    role: '<<Domain Core>>',
+    layer: 'domain',
+    x: 830, y: 1180,
+    attrs: [
+      'step_Id: int',
+      'step_Name: string',
+      'action_Type: enum{click,doubleClick,type,',
+      '  select,hover,wait,navigate,scroll,screenshot}',
+      'target_Selector: string',
+      'target_Description: string',
+      'input_Value: string',
+      'wait_Time: int',
+      'step_Status: enum{pending,passed,failed,skipped}',
+      'screenshot_Path: string',
+      'timestamp: datetime',
+      'step_Order: int',
+    ],
+    methods: [
+      'set_Step(): void',
+      'get_Step(): step_Cl',
+      'execute_Step(): boolean',
+      'record_Step(): void',
+      'save_Step(): void',
+      'load_Step(int): step_Cl',
+      'to_Json(): string',
+      'from_Json(): step_Cl',
+    ],
+  },
+  {
+    id: 'assertion_Cl',
+    name: 'assertion_Cl',
+    role: '<<Domain Core>>',
+    layer: 'domain',
+    x: 1100, y: 1180,
+    attrs: [
+      'assertion_Id: int',
+      'assertion_Name: string',
+      'assertion_Type: enum{field_value,dialog_message,',
+      '  element_visible,element_not_visible,',
+      '  button_enabled,button_disabled,error_message,',
+      '  text_contains,attribute_value,url_contains,',
+      '  title_equals,element_count}',
+      'target_Selector: string',
+      'expected_Value: string',
+      'comparison_Operator: enum{equals,contains,',
+      '  not_equals,greater_than,less_than,matches_regex}',
+      'timeout: int',
+    ],
+    methods: [
+      'set_Assertion(): void',
+      'get_Assertion(): assertion_Cl',
+      'evaluate_Assertion(): assertion_Result_Cl',
+      'save_Assertion(): void',
+      'load_Assertion(int): assertion_Cl',
+      'to_Json(): string',
+      'from_Json(): assertion_Cl',
+    ],
+  },
+
+  // ── RESULTS ──
+  {
+    id: 'test_Result_Class',
+    name: 'test_Result_Class',
+    role: '<<Results>>',
+    layer: 'results',
+    x: 1450, y: 560,
+    attrs: [
+      'result_Id: int',
+      'test_Id: int',
+      'test_Name: string',
+      'total_Scenarios: int',
+      'passed_Scenarios: int',
+      'failed_Scenarios: int',
+      'total_Steps: int',
+      'passed_Steps: int',
+      'failed_Steps: int',
+      'total_Assertions: int',
+      'passed_Assertions: int',
+      'failed_Assertions: int',
+      'execution_Duration: int',
+      'execution_Timestamp: datetime',
+      'scenario_Results: List',
+      'screenshot_Paths: List<string>',
+      'status: enum{passed,failed,partial}',
+    ],
+    methods: [
+      'set_Result(): void',
+      'get_Result(): test_Result_Class',
+      'add_Scenario_Result(): void',
+      'calculate_Status(): enum',
+      'generate_Report(): Report',
+      'save_Result(): void',
+      'load_Result(int): test_Result_Class',
+      'to_Json(): string',
+      'from_Json(): test_Result_Class',
+    ],
+  },
+  {
+    id: 'assertion_Result_Cl',
+    name: 'assertion_Result_Cl',
+    role: '<<Results>>',
+    layer: 'results',
+    x: 1450, y: 1180,
+    attrs: [
+      'result_Id: int',
+      'assertion_Id: int',
+      'assertion_Name: string',
+      'expected_Value: string',
+      'actual_Value: string',
+      'status: enum{passed,failed,error}',
+      'error_Message: string',
+      'screenshot_Path: string',
+      'timestamp: datetime',
+    ],
+    methods: [
+      'set_Result(): void',
+      'get_Result(): assertion_Result_Cl',
+      'is_Passed(): boolean',
+      'to_Json(): string',
+      'from_Json(): assertion_Result_Cl',
+    ],
+  },
+
+  // ── STORAGE/UTILITY ──
+  {
+    id: 'json_Storage_Class',
+    name: 'json_Storage_Class',
+    role: '<<Storage/Utility>>',
+    layer: 'storage',
+    x: 650, y: 1800,
+    attrs: [
+      'storage_Id: int',
+      'base_Directory: string',
+      'file_Path: string',
+      'file_Name: string',
+      'entity_Type: enum{step,assertion,scenario,',
+      '  test_result,env_config,credentials}',
+      'json_Data: string',
+      'created_At: datetime',
+      'updated_At: datetime',
+    ],
+    methods: [
+      'save_To_Json(object): string',
+      'load_From_Json(string): object',
+      'validate_Json(string): boolean',
+      'list_Saved_Files(enum): List<string>',
+      'delete_File(string): boolean',
+      'export_All(): void',
+      'import_All(): void',
+      'get_File_Path(): string',
+    ],
+  },
+  {
+    id: 'step_Recorder_Class',
+    name: 'step_Recorder_Class',
+    role: '<<Storage/Utility>>',
+    layer: 'storage',
+    x: 900, y: 1800,
+    attrs: [
+      'recorder_Id: int',
+      'recording_Status: enum{idle,recording,stopped}',
+      'recorded_Steps: List<step_Cl>',
+      'current_Url: string',
+      'recording_Session_Id: string',
+      'start_Time: datetime',
+      'end_Time: datetime',
+    ],
+    methods: [
+      'start_Recording(): void',
+      'stop_Recording(): List<step_Cl>',
+      'capture_Click(string): step_Cl',
+      'capture_Input(string,string): step_Cl',
+      'capture_Navigation(string): step_Cl',
+      'capture_Select(string,string): step_Cl',
+      'capture_Hover(string): step_Cl',
+      'capture_Scroll(): step_Cl',
+      'save_Recording(): void',
+      'replay_Recording(): boolean',
+    ],
+  },
+];
+
+// ─────────────────────────────────────────────
+//  MEASURE BOX DIMENSIONS
+// ─────────────────────────────────────────────
+function measureBox(cls) {
+  const headerH = 34;
+  const attrsH = SECTION_PAD * 2 + cls.attrs.length * LINE_H;
+  const methsH = SECTION_PAD * 2 + cls.methods.length * LINE_H;
+  return {
+    w: BOX_W,
+    h: headerH + attrsH + methsH,
+    headerH,
+    attrsH,
+    methsH,
+  };
+}
+
+// anchor: center of each side
+function anchor(cls, side) {
+  const { w, h } = measureBox(cls);
+  const cx = cls.x + w / 2;
+  const cy = cls.y + h / 2;
+  if (side === 'top')    return { x: cx, y: cls.y };
+  if (side === 'bottom') return { x: cx, y: cls.y + h };
+  if (side === 'left')   return { x: cls.x, y: cy };
+  if (side === 'right')  return { x: cls.x + w, y: cy };
+}
+
+// ─────────────────────────────────────────────
+//  SVG RENDERING
+// ─────────────────────────────────────────────
+const svg = document.getElementById('main-svg');
+const diagram = document.getElementById('diagram');
+
+function makeSVGEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+function svgText(parent, x, y, text, cls, fill, anchor) {
+  const t = makeSVGEl('text', {
+    x, y,
+    'text-anchor': anchor || 'middle',
+    'dominant-baseline': 'middle',
+    fill: fill || '#1e293b',
+    class: cls || '',
+  });
+  t.textContent = text;
+  parent.appendChild(t);
+  return t;
+}
+
+function drawClass(cls) {
+  const col = COLORS[cls.layer];
+  const { w, h, headerH, attrsH } = measureBox(cls);
+  const g = makeSVGEl('g', { transform: `translate(${cls.x},${cls.y})`, filter: 'url(#shadow)' });
+
+  // outer box
+  const rect = makeSVGEl('rect', {
+    width: w, height: h,
+    rx: 8, ry: 8,
+    fill: col.bg,
+    stroke: col.header,
+    'stroke-width': 2,
+  });
+  g.appendChild(rect);
+
+  // header background
+  const hdr = makeSVGEl('rect', {
+    width: w, height: headerH,
+    rx: 8, ry: 8,
+    fill: col.header,
+    opacity: 0.92,
+  });
+  g.appendChild(hdr);
+  // fix bottom corners of header
+  const hdrFix = makeSVGEl('rect', {
+    y: headerH - 8, width: w, height: 8,
+    fill: col.header, opacity: 0.92,
+  });
+  g.appendChild(hdrFix);
+
+  // class name
+  svgText(g, w / 2, 13, cls.name, 'cls-header', '#fff');
+  // role
+  svgText(g, w / 2, 26, cls.role, 'cls-role', 'rgba(255,255,255,0.88)');
+
+  // divider after header
+  const d1 = makeSVGEl('line', { x1: 0, y1: headerH, x2: w, y2: headerH, class: 'divider', stroke: col.header });
+  g.appendChild(d1);
+
+  // attrs section
+  const attrStartY = headerH + SECTION_PAD;
+  cls.attrs.forEach((a, i) => {
+    const t = makeSVGEl('text', {
+      x: PAD, y: attrStartY + i * LINE_H + LINE_H / 2,
+      'dominant-baseline': 'middle',
+      fill: col.text,
+      class: 'cls-attr',
+    });
+    t.textContent = (a.startsWith('  ') ? a : '+ ' + a);
+    g.appendChild(t);
+  });
+
+  // divider after attrs
+  const d2Y = headerH + attrsH;
+  const d2 = makeSVGEl('line', { x1: 0, y1: d2Y, x2: w, y2: d2Y, class: 'divider', stroke: col.header });
+  g.appendChild(d2);
+
+  // methods section label
+  const methStartY = d2Y + SECTION_PAD;
+  cls.methods.forEach((m, i) => {
+    const t = makeSVGEl('text', {
+      x: PAD, y: methStartY + i * LINE_H + LINE_H / 2,
+      'dominant-baseline': 'middle',
+      fill: col.text,
+      class: 'cls-method',
+    });
+    t.textContent = '# ' + m;
+    g.appendChild(t);
+  });
+
+  diagram.appendChild(g);
+}
+
+// ─────────────────────────────────────────────
+//  RELATIONSHIPS
+// ─────────────────────────────────────────────
+// type: 'composition' | 'aggregation' | 'association'
+const relationships = [
+  // 1. test_Cl --> env_Config_Class (composition)
+  { from: 'test_Cl', to: 'env_Config_Class', type: 'composition',  mult: '1..1', fromSide: 'bottom', toSide: 'right' },
+  // 2. test_Cl --> login_Credentials_Class (composition)
+  { from: 'test_Cl', to: 'login_Credentials_Class', type: 'composition', mult: '1..1', fromSide: 'bottom', toSide: 'top',
+    waypoints: [{dx: 0, dy: 120}, {dx: 530, dy: 120}] },
+  // 3. test_Cl --> scenario_Cl (association)
+  { from: 'test_Cl', to: 'scenario_Cl', type: 'association', mult: '1..*', fromSide: 'bottom', toSide: 'top' },
+  // 4. test_Cl --> test_Result_Class (composition)
+  { from: 'test_Cl', to: 'test_Result_Class', type: 'composition', mult: '1..1', fromSide: 'right', toSide: 'top' },
+  // 5. env_Config_Class --> device_Type_Class (composition)
+  { from: 'env_Config_Class', to: 'device_Type_Class', type: 'composition', mult: '1..1', fromSide: 'bottom', toSide: 'top' },
+  // 6. env_Config_Class --> browser_Type_Class (composition)
+  { from: 'env_Config_Class', to: 'browser_Type_Class', type: 'composition', mult: '1..1', fromSide: 'bottom', toSide: 'top' },
+  // 7. env_Config_Class --> login_Credentials_Class (composition)
+  { from: 'env_Config_Class', to: 'login_Credentials_Class', type: 'composition', mult: '1..1', fromSide: 'bottom', toSide: 'top' },
+  // 8. scenario_Cl --> step_Cl (aggregation)
+  { from: 'scenario_Cl', to: 'step_Cl', type: 'aggregation', mult: '1..*', fromSide: 'bottom', toSide: 'top' },
+  // 9. scenario_Cl --> scenario_Cl (self aggregation)
+  { from: 'scenario_Cl', to: 'scenario_Cl', type: 'aggregation', mult: '0..*', self: true },
+  // 10. scenario_Cl --> assertion_Cl (aggregation)
+  { from: 'scenario_Cl', to: 'assertion_Cl', type: 'aggregation', mult: '0..*', fromSide: 'bottom', toSide: 'top' },
+  // 11. scenario_Cl --> assertion_Result_Cl (association)
+  { from: 'scenario_Cl', to: 'assertion_Result_Cl', type: 'association', mult: '0..*', fromSide: 'right', toSide: 'top' },
+  // 12. assertion_Cl --> assertion_Result_Cl (association)
+  { from: 'assertion_Cl', to: 'assertion_Result_Cl', type: 'association', mult: '1..1', fromSide: 'right', toSide: 'left' },
+  // 13. step_Recorder_Class --> step_Cl (association)
+  { from: 'step_Recorder_Class', to: 'step_Cl', type: 'association', mult: '0..*', fromSide: 'top', toSide: 'bottom' },
+  // 14a. json_Storage_Class --> step_Cl
+  { from: 'json_Storage_Class', to: 'step_Cl', type: 'association', mult: '', fromSide: 'top', toSide: 'bottom', label: 'persists' },
+  // 14b. json_Storage_Class --> assertion_Cl
+  { from: 'json_Storage_Class', to: 'assertion_Cl', type: 'association', mult: '', fromSide: 'right', toSide: 'bottom', label: '' },
+  // 14c. json_Storage_Class --> scenario_Cl
+  { from: 'json_Storage_Class', to: 'scenario_Cl', type: 'association', mult: '', fromSide: 'top', toSide: 'bottom', label: '' },
+  // 14d. json_Storage_Class --> test_Result_Class
+  { from: 'json_Storage_Class', to: 'test_Result_Class', type: 'association', mult: '', fromSide: 'right', toSide: 'bottom', label: '' },
+  // 15. test_Result_Class --> assertion_Result_Cl (aggregation)
+  { from: 'test_Result_Class', to: 'assertion_Result_Cl', type: 'aggregation', mult: '0..*', fromSide: 'bottom', toSide: 'top' },
+];
+
+function getClassById(id) { return classes.find(c => c.id === id); }
+
+function drawRelationship(rel) {
+  const fromCls = getClassById(rel.from);
+  const toCls   = getClassById(rel.to);
+  const col = { composition: '#475569', aggregation: '#94a3b8', association: '#64748b' };
+  const strokeColor = col[rel.type] || '#94a3b8';
+
+  // Self-referencing arrow (scenario_Cl -> scenario_Cl)
+  if (rel.self) {
+    const { w, h } = measureBox(fromCls);
+    const bx = fromCls.x + w;
+    const by = fromCls.y + h * 0.35;
+    const ex = fromCls.x + w;
+    const ey = fromCls.y + h * 0.65;
+    const rx = bx + 38;
+    const path = `M ${bx} ${by} C ${rx} ${by}, ${rx} ${ey}, ${bx} ${ey}`;
+    const el = makeSVGEl('path', {
+      d: path, fill: 'none',
+      stroke: strokeColor, 'stroke-width': 1.6,
+      'stroke-dasharray': rel.type === 'association' ? '5,3' : 'none',
+      'marker-end': 'url(#arrow-end)',
+      'marker-start': rel.type === 'composition' ? 'url(#diamond-solid)' : rel.type === 'aggregation' ? 'url(#diamond-hollow)' : '',
+    });
+    diagram.appendChild(el);
+    const lt = makeSVGEl('text', { x: rx + 6, y: (by + ey) / 2, fill: '#94a3b8', 'font-size': 9, 'dominant-baseline': 'middle' });
+    lt.textContent = '0..*';
+    diagram.appendChild(lt);
+    const nl = makeSVGEl('text', { x: rx + 6, y: (by + ey) / 2 + 11, fill: '#64748b', 'font-size': 8, 'dominant-baseline': 'middle', 'font-style': 'italic' });
+    nl.textContent = '(nested)';
+    diagram.appendChild(nl);
+    return;
+  }
+
+  const p1 = anchor(fromCls, rel.fromSide);
+  const p2 = anchor(toCls, rel.toSide);
+
+  // Build path
+  let d;
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+
+  // Orthogonal routing
+  if (rel.fromSide === 'bottom' && rel.toSide === 'top') {
+    const my = (p1.y + p2.y) / 2;
+    d = `M ${p1.x} ${p1.y} L ${p1.x} ${my} L ${p2.x} ${my} L ${p2.x} ${p2.y}`;
+  } else if (rel.fromSide === 'right' && rel.toSide === 'top') {
+    d = `M ${p1.x} ${p1.y} L ${p2.x} ${p1.y} L ${p2.x} ${p2.y}`;
+  } else if (rel.fromSide === 'right' && rel.toSide === 'left') {
+    d = `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`;
+  } else if (rel.fromSide === 'right' && rel.toSide === 'bottom') {
+    d = `M ${p1.x} ${p1.y} L ${p2.x} ${p1.y} L ${p2.x} ${p2.y}`;
+  } else if (rel.fromSide === 'top' && rel.toSide === 'bottom') {
+    const my = (p1.y + p2.y) / 2;
+    d = `M ${p1.x} ${p1.y} L ${p1.x} ${my} L ${p2.x} ${my} L ${p2.x} ${p2.y}`;
+  } else if (rel.fromSide === 'bottom' && rel.toSide === 'right') {
+    const mx = p1.x;
+    d = `M ${p1.x} ${p1.y} L ${mx} ${p2.y} L ${p2.x} ${p2.y}`;
+  } else {
+    d = `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`;
+  }
+
+  const dashArray = rel.type === 'association' ? '6,3' : 'none';
+  const markerStart = rel.type === 'composition' ? 'url(#diamond-solid)' : rel.type === 'aggregation' ? 'url(#diamond-hollow)' : '';
+
+  const path = makeSVGEl('path', {
+    d,
+    fill: 'none',
+    stroke: strokeColor,
+    'stroke-width': 1.6,
+    'stroke-dasharray': dashArray,
+    'marker-end': 'url(#arrow-end)',
+    'marker-start': markerStart,
+  });
+  diagram.appendChild(path);
+
+  // Multiplicity label near target
+  if (rel.mult) {
+    // place near midpoint biased toward end
+    const pts = parsePathPoints(d);
+    if (pts.length >= 2) {
+      const last = pts[pts.length - 1];
+      const second = pts[pts.length - 2];
+      const lx = last.x + (second.x - last.x) * 0.15 + 6;
+      const ly = last.y + (second.y - last.y) * 0.15 - 7;
+      const mt = makeSVGEl('text', { x: lx, y: ly, fill: '#cbd5e1', 'font-size': 8.5, 'font-family': 'Courier New, monospace' });
+      mt.textContent = rel.mult;
+      diagram.appendChild(mt);
+    }
+  }
+
+  // Relationship label near midpoint
+  if (rel.label) {
+    const pts = parsePathPoints(d);
+    if (pts.length >= 2) {
+      const mid = pts[Math.floor(pts.length / 2)];
+      const lt = makeSVGEl('text', { x: mid.x + 4, y: mid.y - 6, fill: '#94a3b8', 'font-size': 8.5, 'font-family': 'Courier New, monospace', 'font-style': 'italic' });
+      lt.textContent = rel.label;
+      diagram.appendChild(lt);
+    }
+  }
+}
+
+function parsePathPoints(d) {
+  const re = /[ML]\s*([\d.]+)\s+([\d.]+)/g;
+  const pts = [];
+  let m;
+  while ((m = re.exec(d)) !== null) {
+    pts.push({ x: parseFloat(m[1]), y: parseFloat(m[2]) });
+  }
+  return pts;
+}
+
+// ─────────────────────────────────────────────
+//  LEGEND
+// ─────────────────────────────────────────────
+function drawLegend() {
+  const lx = 1750, ly = 1780;
+  const lw = 340, lh = 290;
+
+  const bg = makeSVGEl('rect', { x: lx, y: ly, width: lw, height: lh, rx: 10, fill: '#1e293b', stroke: '#334155', 'stroke-width': 1.5 });
+  diagram.appendChild(bg);
+
+  const title = makeSVGEl('text', { x: lx + lw / 2, y: ly + 18, 'text-anchor': 'middle', fill: '#f1f5f9', 'font-size': 11, 'font-weight': 'bold', 'font-family': 'Courier New, monospace' });
+  title.textContent = 'LEGEND';
+  diagram.appendChild(title);
+
+  // divider
+  const ld = makeSVGEl('line', { x1: lx + 10, y1: ly + 28, x2: lx + lw - 10, y2: ly + 28, stroke: '#334155', 'stroke-width': 1 });
+  diagram.appendChild(ld);
+
+  // relationship types
+  const relItems = [
+    { label: 'Composition (solid diamond)', color: '#475569', dash: 'none',  diamond: 'solid', desc: 'Whole owns part' },
+    { label: 'Aggregation (hollow diamond)', color: '#94a3b8', dash: 'none',  diamond: 'hollow', desc: 'Whole uses part' },
+    { label: 'Association (arrow)', color: '#64748b', dash: '6,3', diamond: '', desc: 'Uses / references' },
+  ];
+
+  relItems.forEach((r, i) => {
+    const ry = ly + 48 + i * 38;
+    // draw line segment
+    const lline = makeSVGEl('line', { x1: lx + 20, y1: ry + 5, x2: lx + 80, y2: ry + 5, stroke: r.color, 'stroke-width': 2, 'stroke-dasharray': r.dash, 'marker-end': 'url(#arrow-end)' });
+    diagram.appendChild(lline);
+    if (r.diamond === 'solid') {
+      const dm = makeSVGEl('polygon', { points: `${lx+20},${ry+5} ${lx+26},${ry+1} ${lx+32},${ry+5} ${lx+26},${ry+9}`, fill: '#475569' });
+      diagram.appendChild(dm);
+    } else if (r.diamond === 'hollow') {
+      const dm = makeSVGEl('polygon', { points: `${lx+20},${ry+5} ${lx+26},${ry+1} ${lx+32},${ry+5} ${lx+26},${ry+9}`, fill: '#1e293b', stroke: '#94a3b8', 'stroke-width': 1.2 });
+      diagram.appendChild(dm);
+    }
+    const lt = makeSVGEl('text', { x: lx + 90, y: ry + 4, fill: '#e2e8f0', 'font-size': 9.5, 'font-family': 'Courier New, monospace', 'dominant-baseline': 'middle' });
+    lt.textContent = r.label;
+    diagram.appendChild(lt);
+    const lt2 = makeSVGEl('text', { x: lx + 90, y: ry + 16, fill: '#64748b', 'font-size': 8.5, 'font-family': 'Courier New, monospace', 'dominant-baseline': 'middle', 'font-style': 'italic' });
+    lt2.textContent = r.desc;
+    diagram.appendChild(lt2);
+  });
+
+  // color key
+  const colorTitle = makeSVGEl('text', { x: lx + 14, y: ly + 175, fill: '#94a3b8', 'font-size': 10, 'font-weight': 'bold', 'font-family': 'Courier New, monospace' });
+  colorTitle.textContent = 'Color Key (Layer)';
+  diagram.appendChild(colorTitle);
+
+  const colorItems = [
+    { color: '#FDE68A', label: 'Orchestrator' },
+    { color: '#FDBA74', label: 'Configuration' },
+    { color: '#93C5FD', label: 'Domain Core' },
+    { color: '#86EFAC', label: 'Results (Extended)' },
+    { color: '#C4B5FD', label: 'Storage / Utility' },
+  ];
+
+  colorItems.forEach((c, i) => {
+    const row = i < 3 ? i : i;
+    const cx = lx + 20;
+    const cy2 = ly + 192 + i * 18;
+    const sq = makeSVGEl('rect', { x: cx, y: cy2, width: 13, height: 13, rx: 3, fill: c.color });
+    diagram.appendChild(sq);
+    const lt = makeSVGEl('text', { x: cx + 20, y: cy2 + 7, fill: '#cbd5e1', 'font-size': 9.5, 'font-family': 'Courier New, monospace', 'dominant-baseline': 'middle' });
+    lt.textContent = c.label;
+    diagram.appendChild(lt);
+  });
+}
+
+// ─────────────────────────────────────────────
+//  LAYER LABELS
+// ─────────────────────────────────────────────
+function drawLayerLabel(text, x, y, color) {
+  const bg = makeSVGEl('rect', { x: x - 8, y: y - 13, width: text.length * 7.2 + 16, height: 22, rx: 5, fill: color, opacity: 0.18 });
+  diagram.appendChild(bg);
+  const t = makeSVGEl('text', { x, y, fill: color, 'font-size': 11, 'font-weight': 'bold', 'font-family': 'Courier New, monospace', 'letter-spacing': '0.08em' });
+  t.textContent = text;
+  diagram.appendChild(t);
+}
+
+// ─────────────────────────────────────────────
+//  DRAW EVERYTHING
+// ─────────────────────────────────────────────
+function render() {
+  // Clear diagram children except background
+  while (diagram.children.length > 2) diagram.removeChild(diagram.lastChild);
+
+  // Layer labels
+  drawLayerLabel('ORCHESTRATOR LAYER', 950, 42, '#F59E0B');
+  drawLayerLabel('CONFIGURATION LAYER', 100, 540, '#EA580C');
+  drawLayerLabel('DOMAIN CORE LAYER', 830, 540, '#2563EB');
+  drawLayerLabel('RESULTS LAYER', 1450, 540, '#16A34A');
+  drawLayerLabel('STORAGE / UTILITY LAYER', 580, 1775, '#7C3AED');
+
+  // Relationships first (behind boxes)
+  relationships.forEach(drawRelationship);
+
+  // Classes
+  classes.forEach(drawClass);
+
+  // Legend
+  drawLegend();
+
+  // Diagram title
+  const dt = makeSVGEl('text', {
+    x: 1170, y: 25,
+    'text-anchor': 'middle',
+    fill: '#f8fafc',
+    'font-size': 15,
+    'font-weight': 'bold',
+    'font-family': 'Courier New, monospace',
+    'letter-spacing': '0.04em',
+    opacity: 0.9,
+  });
+  dt.textContent = 'ERP Test Automation Framework -- Expanded UML Class Diagram';
+  diagram.appendChild(dt);
+}
+
+// ─────────────────────────────────────────────
+//  PAN / ZOOM
+// ─────────────────────────────────────────────
+let scale = 0.52;
+let tx = -60, ty = -20;
+let dragging = false, startX, startY, startTx, startTy;
+
+const wrap = document.getElementById('canvas-wrap');
+
+function applyTransform() {
+  diagram.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+  document.getElementById('zoomLabel').textContent = Math.round(scale * 100) + '%';
+}
+
+wrap.addEventListener('mousedown', e => {
+  dragging = true;
+  startX = e.clientX; startY = e.clientY;
+  startTx = tx; startTy = ty;
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  tx = startTx + (e.clientX - startX);
+  ty = startTy + (e.clientY - startY);
+  applyTransform();
+});
+window.addEventListener('mouseup', () => { dragging = false; });
+
+wrap.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.08 : 0.93;
+  const rect = wrap.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  tx = mx - (mx - tx) * factor;
+  ty = my - (my - ty) * factor;
+  scale = Math.max(0.1, Math.min(3.5, scale * factor));
+  applyTransform();
+}, { passive: false });
+
+document.getElementById('zoomIn').addEventListener('click', () => {
+  scale = Math.min(3.5, scale * 1.15);
+  applyTransform();
+});
+document.getElementById('zoomOut').addEventListener('click', () => {
+  scale = Math.max(0.1, scale * 0.87);
+  applyTransform();
+});
+document.getElementById('resetView').addEventListener('click', () => {
+  scale = 0.52; tx = -60; ty = -20;
+  applyTransform();
+});
+
+// Touch support
+let lastTouchDist = null;
+wrap.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    dragging = true;
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    startTx = tx; startTy = ty;
+  }
+}, { passive: true });
+wrap.addEventListener('touchmove', e => {
+  if (e.touches.length === 1 && dragging) {
+    tx = startTx + (e.touches[0].clientX - startX);
+    ty = startTy + (e.touches[0].clientY - startY);
+    applyTransform();
+  } else if (e.touches.length === 2) {
+    const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    if (lastTouchDist) {
+      const f = d / lastTouchDist;
+      scale = Math.max(0.1, Math.min(3.5, scale * f));
+      applyTransform();
+    }
+    lastTouchDist = d;
+  }
+}, { passive: true });
+wrap.addEventListener('touchend', () => { dragging = false; lastTouchDist = null; });
+
+render();
+applyTransform();
+</script>
+</body>
+</html>
