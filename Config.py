@@ -114,29 +114,38 @@ class EnvironmentConfig:
     def get_playwright_launch_channel(self) -> str | None:
         return self.browser_type.get_playwright_channel()
 
+    def get_playwright_device_name(self) -> str | None:
+        """Return the Playwright built-in device name for mobile/tablet,
+        or None for desktop. Using p.devices[name] applies the full emulation:
+        viewport, device_scale_factor, user_agent, is_mobile, has_touch."""
+        if self.device_type == DeviceType.MOBILE:
+            return "iPhone 13"
+        elif self.device_type == DeviceType.TABLET:
+            return "iPad Mini"
+        return None  # desktop — no device emulation
+
     def get_device_descriptor(self) -> dict:
-        """Return Playwright device descriptor dict for browser context.
-        For mobile/tablet, includes user_agent so the server responds as mobile."""
+        """Fallback device descriptor (used only if the Playwright device
+        registry name is not available)."""
         presets = DeviceType.get_presets()
         preset = presets.get(self.device_type, {})
 
         if self.device_type == DeviceType.MOBILE:
             return {
-                "viewport": preset.get("viewport", {"width": 390, "height": 844}),
+                "viewport": {"width": 390, "height": 844},
+                "device_scale_factor": 3,
                 "is_mobile": True,
                 "has_touch": True,
                 "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             }
         elif self.device_type == DeviceType.TABLET:
             return {
-                "viewport": preset.get("viewport", {"width": 768, "height": 1024}),
+                "viewport": {"width": 768, "height": 1024},
+                "device_scale_factor": 2,
                 "is_mobile": True,
                 "has_touch": True,
                 "user_agent": "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             }
         else:
-            # Desktop — no user_agent override
-            return {
-                "viewport": preset.get("viewport", {"width": 1920, "height": 1080}),
-            }
+            return {"viewport": {"width": 1920, "height": 1080}}
 
