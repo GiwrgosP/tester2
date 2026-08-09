@@ -17,6 +17,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("ERP Test Automation Framework v7")
         self.setMinimumSize(1200, 800)
         self.db = DataBase()
+
         tabs = QTabWidget()
 
         # Tab 1: Configuration
@@ -54,6 +55,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(tabs)
         self.setStatusBar(QStatusBar())
 
+        # Menu bar
         mb = self.menuBar()
         fm = mb.addMenu("File")
         ra = QAction("Refresh All", self)
@@ -75,9 +77,8 @@ class MainWindow(QMainWindow):
 
     def _refresh(self):
         for tab in [self.config_tab, self.steps_tab, self.record_tab,
-                    self.assertions_tab, self.scenarios_tab, self.modules_tab,
-                    self.datasets_tab, self.runner_tab]:
-            if hasattr(tab, 'refresh'):
-                tab.refresh()
+                     self.assertions_tab, self.scenarios_tab,
+                     self.modules_tab, self.datasets_tab, self.runner_tab]:
+            tab.refresh()
         self.statusBar().showMessage("All tabs refreshed", 3000)
 
