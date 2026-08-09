@@ -67,6 +67,7 @@ class GlobalVariable:
 
 @dataclass
 class EnvironmentConfig:
+    """Environment configuration for a test run."""
     config_Id: int = 0
     config_Name: str = ""
     device_type: DeviceType = DeviceType.DESKTOP
@@ -74,36 +75,34 @@ class EnvironmentConfig:
     web_app_url: str = ""
     headless: bool = False
     timeout_sec: int = 30
-    config_Type: str = "dev"
     global_Variables: list = field(default_factory=list)
 
-    def __post_init__(self):
-        if self.global_Variables is None:
-            self.global_Variables = []
-
-    def get_Global_Variables_Dict(self) -> dict:
-        result = {}
-        for gv in self.global_Variables:
-            if isinstance(gv, GlobalVariable):
-                result[gv.var_Name] = gv.var_Value
-            elif isinstance(gv, dict):
-                result[gv.get("var_Name", "")] = gv.get("var_Value", "")
-        return result
-
-    def to_json(self) -> str:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["device_type"] = self.device_type.value
         d["browser_type"] = self.browser_type.value
-        return json.dumps(d, indent=2)
+        d["global_Variables"] = [gv.to_dict() if isinstance(gv, GlobalVariable) else gv for gv in self.global_Variables]
+        return d
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), indent=2)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "EnvironmentConfig":
+        d = dict(data)
+        d["device_type"] = DeviceType(d.get("device_type", "desktop"))
+        d["browser_type"] = BrowserType(d.get("browser_type", "chrome"))
+        gv_list = d.get("global_Variables", [])
+        d["global_Variables"] = [
+            GlobalVariable.from_dict(gv) if isinstance(gv, dict) else gv
+            for gv in gv_list
+        ]
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
     @classmethod
     def from_json(cls, json_str) -> "EnvironmentConfig":
-        d = json.loads(json_str) if isinstance(json_str, str) else json_str
-        d["device_type"] = DeviceType(d.get("device_type", "desktop"))
-        d["browser_type"] = BrowserType(d.get("browser_type", "chrome"))
-        d["global_Variables"] = [GlobalVariable.from_dict(gv) if isinstance(gv, dict) else gv
-                                  for gv in d.get("global_Variables", [])]
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+        data = json.loads(json_str) if isinstance(json_str, str) else json_str
+        return cls.from_dict(data)
 
     def get_playwright_browser_name(self) -> str:
         if self.browser_type == BrowserType.FIREFOX:
@@ -116,5 +115,28 @@ class EnvironmentConfig:
         return self.browser_type.get_playwright_channel()
 
     def get_device_descriptor(self) -> dict:
-        return DeviceType.get_presets().get(self.device_type, {})
+        """Return Playwright device descriptor dict for browser context.
+        For mobile/tablet, includes user_agent so the server responds as mobile."""
+        presets = DeviceType.get_presets()
+        preset = presets.get(self.device_type, {})
+
+        if self.device_type == DeviceType.MOBILE:
+            return {
+                "viewport": preset.get("viewport", {"width": 390, "height": 844}),
+                "is_mobile": True,
+                "has_touch": True,
+                "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            }
+        elif self.device_type == DeviceType.TABLET:
+            return {
+                "viewport": preset.get("viewport", {"width": 768, "height": 1024}),
+                "is_mobile": True,
+                "has_touch": True,
+                "user_agent": "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            }
+        else:
+            # Desktop — no user_agent override
+            return {
+                "viewport": preset.get("viewport", {"width": 1920, "height": 1080}),
+            }
 

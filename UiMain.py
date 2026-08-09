@@ -17,7 +17,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("ERP Test Automation Framework v7")
         self.setMinimumSize(1200, 800)
         self.db = DataBase()
-
         tabs = QTabWidget()
 
         # Tab 1: Configuration
@@ -55,7 +54,6 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(tabs)
         self.setStatusBar(QStatusBar())
 
-        # Menu bar
         mb = self.menuBar()
         fm = mb.addMenu("File")
         ra = QAction("Refresh All", self)

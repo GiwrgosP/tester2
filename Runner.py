@@ -42,8 +42,6 @@ class TestRunner(QObject):
         self._sf = 0
         self._spass = 0
         self._sfail = 0
-        self._responses = []
-        self._failed_requests = []
 
         self._global_vars = self.env.get_Global_Variables_Dict()
         if self._global_vars:
@@ -63,16 +61,22 @@ class TestRunner(QObject):
             else:
                 br = p.chromium.launch(**kw)
 
-            ctx = br.new_context(**self.env.get_device_descriptor())
+            # Build context with device descriptor
+            device_descriptor = self.env.get_device_descriptor()
+            ctx = br.new_context(**device_descriptor)
             page = ctx.new_page()
             page.set_default_timeout(self.env.timeout_sec * 1000)
 
+            # Set up network response tracking for assertions
             page.on("response", lambda r: self._responses.append({"url": r.url, "status": r.status}))
             page.on("requestfailed", lambda req: self._failed_requests.append({"url": req.url, "error": str(req.failure)}))
             AssertionEvaluator._responses = self._responses
             AssertionEvaluator._failed_requests = self._failed_requests
 
-            self.log_message.emit(f"Browser: {bn} | Config: {self.env.config_Name} | Headless: {self.env.headless}")
+            device_name = str(self.env.device_type.value)
+            self.log_message.emit(f"Browser: {bn} | Device: {device_name} | Headless: {self.env.headless}")
+            self.log_message.emit(f"Context viewport: {device_descriptor.get('viewport', 'default')}")
+
             if self.env.web_app_url:
                 page.goto(self.env.web_app_url)
                 self._wait_for_page_load(page)
@@ -84,6 +88,7 @@ class TestRunner(QObject):
                     continue
                 self.log_message.emit(f"\n--- Running: {sc.scenario_Name} ---")
 
+                # Data-driven
                 data_rows = [None]
                 if sc.data_Set_Id and sc.data_Set_Id > 0:
                     ds = self.db.load_data_set(sc.data_Set_Id)
@@ -152,10 +157,12 @@ class TestRunner(QObject):
             pass
 
     def _execute_step_with_condition(self, page, step, data_row, gv, step_idx, step_conditions):
+        """Execute a step, checking for a per-step condition first."""
         condition = step_conditions.get(str(step_idx)) or step_conditions.get(step_idx)
         if condition:
             assertion_id = condition.get("assertion_Id", 0)
             run_if = condition.get("run_If", "always")
+
             if assertion_id and assertion_id > 0 and run_if != "always":
                 assertion = self.db.load_assertion(assertion_id)
                 if assertion:
@@ -231,11 +238,12 @@ class TestRunner(QObject):
         return results
 
     def _exec_sc(self, page, sc, data_row, row_idx, depth=0, visited=None):
+        """Execute a scenario with pre/post conditional branching."""
         if visited is None:
             visited = set()
 
         if sc.scenario_Id in visited:
-            self.log_message.emit(f"  [WARNING] Circular reference detected: {sc.scenario_Name} — skipping")
+            self.log_message.emit(f"  [WARNING] Circular reference: {sc.scenario_Name} — skipping")
             return True, []
         visited.add(sc.scenario_Id)
 
@@ -245,7 +253,9 @@ class TestRunner(QObject):
         indent = "  " * (depth + 1)
         step_conditions = getattr(sc, 'step_Conditions', {}) or {}
 
-        # 1. PRE-CONDITION
+        # ══════════════════════════════════════════════════════
+        # 1. PRE-CONDITION — evaluate before any steps
+        # ══════════════════════════════════════════════════════
         pre_assertion_id = getattr(sc, 'pre_Condition_Assertion_Id', 0) or 0
         pre_on_true = getattr(sc, 'pre_On_True_Scenario_Id', 0) or 0
         pre_on_false = getattr(sc, 'pre_On_False_Scenario_Id', 0) or 0
@@ -268,28 +278,30 @@ class TestRunner(QObject):
                     if pre_on_true > 0:
                         branch_sc = self.db.load_scenario(pre_on_true)
                         if branch_sc:
-                            self.log_message.emit(f"{indent}  → Running branch scenario: {branch_sc.scenario_Name}")
+                            self.log_message.emit(f"{indent}  → Running branch: {branch_sc.scenario_Name}")
                             bp, br = self._exec_sc(page, branch_sc, data_row, row_idx, depth + 1, visited)
                             all_r.extend(br)
                             if not bp:
                                 ap = False
                     if pre_stop_true:
-                        self.log_message.emit(f"{indent}  → Stopping main scenario (pre-condition passed + stop flag set)")
+                        self.log_message.emit(f"{indent}  → Stopping main scenario (pre-condition passed + stop flag)")
                         return ap, all_r
                 else:
                     if pre_on_false > 0:
                         branch_sc = self.db.load_scenario(pre_on_false)
                         if branch_sc:
-                            self.log_message.emit(f"{indent}  → Running branch scenario: {branch_sc.scenario_Name}")
+                            self.log_message.emit(f"{indent}  → Running branch: {branch_sc.scenario_Name}")
                             bp, br = self._exec_sc(page, branch_sc, data_row, row_idx, depth + 1, visited)
                             all_r.extend(br)
                             if not bp:
                                 ap = False
                     if pre_stop_false:
-                        self.log_message.emit(f"{indent}  → Stopping main scenario (pre-condition failed + stop flag set)")
+                        self.log_message.emit(f"{indent}  → Stopping main scenario (pre-condition failed + stop flag)")
                         return ap, all_r
 
-        # 2. MAIN STEPS
+        # ══════════════════════════════════════════════════════
+        # 2. MAIN STEPS — execute in order with per-step conditions
+        # ══════════════════════════════════════════════════════
         for idx, sid in enumerate(sc.step_Ids):
             step = self.db.load_step(sid)
             if step is None:
@@ -314,7 +326,9 @@ class TestRunner(QObject):
             if any(not r.is_passed() for r in step_results):
                 ap = False
 
-        # 3. NESTED SCENARIOS
+        # ══════════════════════════════════════════════════════
+        # 3. NESTED SCENARIOS — recursive
+        # ══════════════════════════════════════════════════════
         for nid in sc.nested_Scenario_Ids:
             ns = self.db.load_scenario(nid)
             if ns and nid != sc.scenario_Id:
@@ -324,13 +338,17 @@ class TestRunner(QObject):
                 if not np:
                     ap = False
 
-        # 4. SCENARIO-LEVEL ASSERTIONS
+        # ══════════════════════════════════════════════════════
+        # 4. SCENARIO-LEVEL ASSERTIONS — after all steps
+        # ══════════════════════════════════════════════════════
         sc_results = self._evaluate_assertions_for_scenario(page, sc, data_row, gv, row_idx)
         all_r.extend(sc_results)
         if any(not r.is_passed() for r in sc_results):
             ap = False
 
-        # 5. POST-CONDITION
+        # ══════════════════════════════════════════════════════
+        # 5. POST-CONDITION — evaluate after all steps
+        # ══════════════════════════════════════════════════════
         post_assertion_id = getattr(sc, 'post_Condition_Assertion_Id', 0) or 0
         post_on_true = getattr(sc, 'post_On_True_Scenario_Id', 0) or 0
         post_on_false = getattr(sc, 'post_On_False_Scenario_Id', 0) or 0
@@ -351,7 +369,7 @@ class TestRunner(QObject):
                     if post_on_true > 0:
                         branch_sc = self.db.load_scenario(post_on_true)
                         if branch_sc:
-                            self.log_message.emit(f"{indent}  → Running branch scenario: {branch_sc.scenario_Name}")
+                            self.log_message.emit(f"{indent}  → Running branch: {branch_sc.scenario_Name}")
                             bp, br = self._exec_sc(page, branch_sc, data_row, row_idx, depth + 1, visited)
                             all_r.extend(br)
                             if not bp:
@@ -360,7 +378,7 @@ class TestRunner(QObject):
                     if post_on_false > 0:
                         branch_sc = self.db.load_scenario(post_on_false)
                         if branch_sc:
-                            self.log_message.emit(f"{indent}  → Running branch scenario: {branch_sc.scenario_Name}")
+                            self.log_message.emit(f"{indent}  → Running branch: {branch_sc.scenario_Name}")
                             bp, br = self._exec_sc(page, branch_sc, data_row, row_idx, depth + 1, visited)
                             all_r.extend(br)
                             if not bp:
