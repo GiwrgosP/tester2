@@ -5,7 +5,7 @@ No auto-saved steps list — steps are saved directly to the database.
 from __future__ import annotations
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QComboBox, QPushButton, QLabel, QGroupBox, QMessageBox,
-    QTextEdit, QListWidget, QListWidgetItem)
+    QTextEdit)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
 from Config import EnvironmentConfig
@@ -105,12 +105,6 @@ class RecordTab(QWidget):
         self.log_output.setMaximumHeight(150)
         layout.addWidget(self.log_output)
 
-        # Recorded steps preview
-        self.steps_list = QListWidget()
-        self.steps_list.setMaximumHeight(200)
-        layout.addWidget(QLabel("Recorded steps (auto-saved):"))
-        layout.addWidget(self.steps_list)
-
     def refresh(self):
         self.config_combo.clear()
         for cfg in self.db.list_configs():
@@ -133,7 +127,6 @@ class RecordTab(QWidget):
         self.status_label.setText("Recording in progress — interact with the browser")
         self.status_label.setStyleSheet("color:#ef4444;font-weight:bold;padding:5px;")
         self.log_output.clear()
-        self.steps_list.clear()
 
         self._thread = RecordingThread(url, browser)
         self._thread.log_message.connect(self._log)
@@ -162,7 +155,6 @@ class RecordTab(QWidget):
         for step in steps:
             self.db.save_step(step)
             count += 1
-            self.steps_list.addItem(f"[{step.step_Id}] {step.step_Name} - {step.action_Type.value}")
 
         self.log_output.append(f"Saved {count} steps to database.")
         QMessageBox.information(self, "Recording Complete",
@@ -176,4 +168,5 @@ class RecordTab(QWidget):
         self.status_label.setStyleSheet("color:#ef4444;font-weight:bold;padding:5px;")
         self.log_output.append(f"ERROR: {error_msg}")
         QMessageBox.critical(self, "Recording Error", error_msg)
+
 

@@ -9,28 +9,9 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QTableWidget, QTableWidgetItem, QLineEdit, QComboBox, QSpinBox, QTextEdit,
     QPushButton, QListWidget, QListWidgetItem, QGroupBox, QMessageBox, QDialog,
     QDialogButtonBox, QLabel, QInputDialog, QScrollArea, QCheckBox)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt
 from Models import Step, ActionType
-from Recorder import StepRecorder
 from Storage import DataBase
-
-
-class RecordThread(QThread):
-    steps_ready = pyqtSignal(list)
-    error_occurred = pyqtSignal(str)
-
-    def __init__(self, url: str, browser: str):
-        super().__init__()
-        self.url = url
-        self.browser = browser
-
-    def run(self):
-        try:
-            r = StepRecorder()
-            steps = r.start_recording(self.url, self.browser)
-            self.steps_ready.emit(steps)
-        except Exception as e:
-            self.error_occurred.emit(str(e))
 
 
 class _StepEditDialog(QDialog):
@@ -237,7 +218,7 @@ class _StepEditDialog(QDialog):
 
 class StepsTab(QWidget):
     """Tab for managing steps. Shows a read-only table.
-    Click Record to record steps. Click Edit to open a dialog."""
+    Click Edit to open a dialog."""
 
     def __init__(self, db: DataBase):
         super().__init__()
@@ -258,10 +239,6 @@ class StepsTab(QWidget):
 
         # Buttons
         btn_row = QHBoxLayout()
-        self.record_btn = QPushButton("Record Steps")
-        self.record_btn.setStyleSheet("QPushButton{background-color:#ef4444;color:white;font-weight:bold;padding:6px 12px;border-radius:4px;}")
-        self.record_btn.clicked.connect(self._record)
-        btn_row.addWidget(self.record_btn)
         self.edit_btn = QPushButton("Edit")
         self.edit_btn.clicked.connect(self._edit_selected)
         btn_row.addWidget(self.edit_btn)
@@ -296,34 +273,6 @@ class StepsTab(QWidget):
         sid = int(self.table.item(row, 0).text())
         return self.db.load_step(sid)
 
-    def _record(self):
-        url, ok = QInputDialog.getText(self, "Record", "App URL:")
-        if not ok or not url:
-            return
-        browser, ok = QInputDialog.getItem(self, "Record", "Browser:",
-                                           ["chromium", "firefox", "webkit"], 0, False)
-        if not ok:
-            return
-        self.record_btn.setEnabled(False)
-        self.record_btn.setText("Recording... (close browser when done)")
-        self.thread = RecordThread(url, browser)
-        self.thread.steps_ready.connect(self._steps_recorded)
-        self.thread.error_occurred.connect(self._record_error)
-        self.thread.start()
-
-    def _steps_recorded(self, steps):
-        self.record_btn.setEnabled(True)
-        self.record_btn.setText("Record Steps")
-        for s in steps:
-            self.db.save_step(s)
-        self.refresh()
-        QMessageBox.information(self, "Done", f"Recorded {len(steps)} steps.")
-
-    def _record_error(self, err):
-        self.record_btn.setEnabled(True)
-        self.record_btn.setText("Record Steps")
-        QMessageBox.critical(self, "Error", f"Recording failed:\n{err}")
-
     def _edit_selected(self):
         s = self._get_selected_step()
         if s is None:
@@ -352,3 +301,4 @@ class StepsTab(QWidget):
             QMessageBox.warning(self, "Cannot Delete", f"This step is used by:\n\n{deps}")
             return
         self.refresh()
+
