@@ -1,40 +1,36 @@
 """
 Step recorder using Playwright codegen + AST parser.
-Records user interactions and converts them to Step objects.
-FIXED: AST parsing of locator chains (get_by_role, get_by_label, etc.)
+FIXED: _extract_action returns _ActionResult objects (not dicts) so .action_Type.value works.
+FIXED: AST parsing handles all locator chains (get_by_role, get_by_label, etc.)
 """
 from __future__ import annotations
-import ast, subprocess, sys, tempfile, os
+import ast, subprocess, sys, tempfile, os, re
 from datetime import datetime
+from collections import namedtuple
 from Models import Step, ActionType
+
+_ActionResult = namedtuple('_ActionResult', ['action_Type', 'target_Selector', 'input_Value', 'target_Description'])
 
 
 class StepRecorder:
-    """Records steps via Playwright codegen subprocess + AST parser."""
-
-    _BROWSER_MAP = {
-        "chrome": [], "chromium": [], "default": [],
-        "firefox": ["--browser", "firefox"],
-        "webkit": ["--browser", "webkit"], "safari": ["--browser", "webkit"],
-        "edge": ["--browser", "chromium", "--channel", "msedge"],
-    }
+    """Records steps using Playwright codegen and converts them to Step objects."""
 
     def start_recording(self, url: str, browser: str = "chromium") -> list:
-        bt = str(browser).lower()
-        browser_flag = []
-        for key, flag in self._BROWSER_MAP.items():
-            if key in bt:
-                browser_flag = flag
-                break
+        bt = str(browser)
+        if "firefox" in bt.lower():
+            flag = ["--browser", "firefox"]
+        elif "webkit" in bt.lower() or "safari" in bt.lower():
+            flag = ["--browser", "webkit"]
+        elif "edge" in bt.lower():
+            flag = ["--browser", "chromium", "--channel", "msedge"]
+        else:
+            flag = []
 
         fd, temp_path = tempfile.mkstemp(suffix=".py")
         os.close(fd)
 
         cmd = [sys.executable, "-m", "playwright", "codegen",
-               "--target", "python", "--output", temp_path]
-        cmd += browser_flag
-        cmd.append(url)
-
+               "--target", "python", "--output", temp_path] + flag + [url]
         print(f"[Recorder] Running: {' '.join(cmd)}")
         try:
             subprocess.run(cmd, timeout=300)
@@ -90,7 +86,7 @@ class StepRecorder:
                     timestamp=datetime.now().isoformat()))
         return steps
 
-    def _extract_action(self, call):
+    def _extract_action(self, call) -> _ActionResult | None:
         """Extract action from an AST Call node."""
         if isinstance(call.func, ast.Attribute):
             # Direct call: page.goto(), page.click(), page.fill()
@@ -102,7 +98,7 @@ class StepRecorder:
                 return self._extract_locator_action(call)
         return None
 
-    def _map_page_action(self, call, method):
+    def _map_page_action(self, call, method) -> _ActionResult | None:
         """Map direct page.* calls."""
         sel = self._ast_value(call.args[0]) if call.args else ""
         at_map = {
@@ -116,10 +112,10 @@ class StepRecorder:
         if not action_type:
             return None
         input_val = self._ast_value(call.args[1]) if len(call.args) > 1 else ""
-        return {"action_Type": action_type, "target_Selector": sel,
-                "input_Value": input_val, "target_Description": sel}
+        return _ActionResult(action_Type=action_type, target_Selector=sel,
+                             input_Value=input_val, target_Description=sel)
 
-    def _extract_locator_action(self, call):
+    def _extract_locator_action(self, call) -> _ActionResult | None:
         """Extract action from locator chain: page.get_by_role(...).click()."""
         chain = []
         current = call
@@ -197,8 +193,8 @@ class StepRecorder:
                 else:
                     pass
 
-        return {"action_Type": action_type, "target_Selector": selector,
-                "input_Value": input_val, "target_Description": desc}
+        return _ActionResult(action_Type=action_type, target_Selector=selector,
+                             input_Value=input_val, target_Description=desc)
 
     def _ast_value(self, node) -> str:
         """Safely extract a value from an AST node."""
@@ -213,108 +209,73 @@ class StepRecorder:
 
     def _parse_regex_fallback(self, code_text: str) -> list:
         """Fallback regex parser for non-AST-parseable output."""
-        import re
         steps = []
         order = 0
 
-        # page.goto("url")
-        for m in re.finditer(r'page\.goto\("([^"]+)"\)', code_text):
-            order += 1
-            steps.append(Step(
-                step_Name=f"Step {order}: navigate {m.group(1)[:50]}",
-                action_Type=ActionType.NAVIGATE,
-                target_Selector=m.group(1),
-                step_Order=order,
-                timestamp=datetime.now().isoformat()))
+        patterns = [
+            (r'page\.goto\("([^"]*)"\)', ActionType.NAVIGATE, "goto"),
+            (r'page\.get_by_label\("([^"]*)"\)\.click\(\)', ActionType.CLICK, "click label"),
+            (r'page\.get_by_label\("([^"]*)"\)\.fill\("([^"]*)"\)', ActionType.TYPE, "fill label"),
+            (r'page\.get_by_label\("([^"]*)"\)\.press\("([^"]*)"\)', ActionType.PRESS_KEY, "press label"),
+            (r'page\.get_by_text\("([^"]*)"\)\.click\(\)', ActionType.CLICK, "click text"),
+            (r'page\.get_by_text\("([^"]*)"\)\.fill\("([^"]*)"\)', ActionType.TYPE, "fill text"),
+            (r'page\.get_by_placeholder\("([^"]*)"\)\.click\(\)', ActionType.CLICK, "click placeholder"),
+            (r'page\.get_by_placeholder\("([^"]*)"\)\.fill\("([^"]*)"\)', ActionType.TYPE, "fill placeholder"),
+            (r'page\.get_by_role\("([^"]*)", name="([^"]*)"\)\.click\(\)', ActionType.CLICK, "click role"),
+            (r'page\.get_by_role\("([^"]*)", name="([^"]*)"\)\.fill\("([^"]*)"\)', ActionType.TYPE, "fill role"),
+            (r'page\.get_by_role\("([^"]*)", name="([^"]*)"\)\.press\("([^"]*)"\)', ActionType.PRESS_KEY, "press role"),
+            (r'page\.get_by_test_id\("([^"]*)"\)\.click\(\)', ActionType.CLICK, "click test-id"),
+            (r'page\.get_by_test_id\("([^"]*)"\)\.fill\("([^"]*)"\)', ActionType.TYPE, "fill test-id"),
+            (r'page\.get_by_alt_text\("([^"]*)"\)\.click\(\)', ActionType.CLICK, "click alt"),
+            (r'page\.get_by_title\("([^"]*)"\)\.click\(\)', ActionType.CLICK, "click title"),
+            (r'page\.locator\("([^"]*)"\)\.click\(\)', ActionType.CLICK, "click locator"),
+            (r'page\.locator\("([^"]*)"\)\.fill\("([^"]*)"\)', ActionType.TYPE, "fill locator"),
+            (r'page\.locator\("([^"]*)"\)\.press\("([^"]*)"\)', ActionType.PRESS_KEY, "press locator"),
+            (r'page\.locator\("([^"]*)"\)\.dblclick\(\)', ActionType.DOUBLE_CLICK, "dblclick locator"),
+            (r'page\.locator\("([^"]*)"\)\.select_option\("([^"]*)"\)', ActionType.SELECT, "select locator"),
+            (r'page\.locator\("([^"]*)"\)\.hover\(\)', ActionType.HOVER, "hover locator"),
+            (r'page\.locator\("([^"]*)"\)\.check\(\)', ActionType.CHECK, "check locator"),
+            (r'page\.locator\("([^"]*)"\)\.uncheck\(\)', ActionType.UNCHECK, "uncheck locator"),
+            (r'page\.wait_for_selector\("([^"]*)"\)', ActionType.WAIT, "wait_for_selector"),
+            (r'page\.screenshot\(path="([^"]*)"\)', ActionType.SCREENSHOT, "screenshot"),
+        ]
 
-        # page.get_by_role("button", name="Save").click()
-        for m in re.finditer(
-                r'page\.get_by_role\("([^"]+)",\s*name="([^"]+)"\)\.(\w+)\(\)', code_text):
-            order += 1
-            at_map = {"click": ActionType.CLICK, "fill": ActionType.TYPE,
-                      "press": ActionType.PRESS_KEY, "hover": ActionType.HOVER}
-            steps.append(Step(
-                step_Name=f"Step {order}: {m.group(3)} {m.group(2)}",
-                action_Type=at_map.get(m.group(3), ActionType.CLICK),
-                target_Selector=f"role={m.group(1)} name={m.group(2)}",
-                step_Order=order,
-                timestamp=datetime.now().isoformat()))
+        for line in code_text.splitlines():
+            for pattern, at, desc in patterns:
+                m = re.search(pattern, line)
+                if m:
+                    order += 1
+                    groups = m.groups()
+                    sel = groups[0] if groups else ""
+                    inp = groups[1] if len(groups) > 1 else ""
 
-        # page.get_by_label("text").click() or .fill("value")
-        for m in re.finditer(
-                r'page\.get_by_label\("([^"]+)"\)\.(\w+)\((?:"([^"]*)")?\)', code_text):
-            order += 1
-            at_map = {"click": ActionType.CLICK, "fill": ActionType.TYPE,
-                      "press": ActionType.PRESS_KEY, "hover": ActionType.HOVER}
-            steps.append(Step(
-                step_Name=f"Step {order}: {m.group(2)} {m.group(1)}",
-                action_Type=at_map.get(m.group(2), ActionType.CLICK),
-                target_Selector=f"label={m.group(1)}",
-                input_Value=m.group(3) or "",
-                step_Order=order,
-                timestamp=datetime.now().isoformat()))
+                    if "get_by_label" in pattern:
+                        sel = f"label={sel}"
+                    elif "get_by_text" in pattern:
+                        sel = f"text={sel}"
+                    elif "get_by_placeholder" in pattern:
+                        sel = f"placeholder={sel}"
+                    elif "get_by_role" in pattern:
+                        role = groups[0]
+                        name = groups[1] if len(groups) > 1 else ""
+                        inp = groups[2] if len(groups) > 2 else inp
+                        sel = f"role={role} name={name}" if name else f"role={role}"
+                    elif "get_by_test_id" in pattern:
+                        sel = f"test-id={sel}"
+                    elif "get_by_alt_text" in pattern:
+                        sel = f"alt={sel}"
+                    elif "get_by_title" in pattern:
+                        sel = f"title={sel}"
 
-        # page.get_by_text("text").click()
-        for m in re.finditer(
-                r'page\.get_by_text\("([^"]+)"\)\.(\w+)\(\)', code_text):
-            order += 1
-            at_map = {"click": ActionType.CLICK, "fill": ActionType.TYPE,
-                      "press": ActionType.PRESS_KEY, "hover": ActionType.HOVER}
-            steps.append(Step(
-                step_Name=f"Step {order}: {m.group(2)} {m.group(1)}",
-                action_Type=at_map.get(m.group(2), ActionType.CLICK),
-                target_Selector=f"text={m.group(1)}",
-                step_Order=order,
-                timestamp=datetime.now().isoformat()))
-
-        # page.get_by_placeholder("text").click() or .fill()
-        for m in re.finditer(
-                r'page\.get_by_placeholder\("([^"]+)"\)\.(\w+)\((?:"([^"]*)")?\)', code_text):
-            order += 1
-            at_map = {"click": ActionType.CLICK, "fill": ActionType.TYPE,
-                      "press": ActionType.PRESS_KEY, "hover": ActionType.HOVER}
-            steps.append(Step(
-                step_Name=f"Step {order}: {m.group(2)} {m.group(1)}",
-                action_Type=at_map.get(m.group(2), ActionType.CLICK),
-                target_Selector=f"placeholder={m.group(1)}",
-                input_Value=m.group(3) or "",
-                step_Order=order,
-                timestamp=datetime.now().isoformat()))
-
-        # page.get_by_test_id("id").click()
-        for m in re.finditer(
-                r'page\.get_by_test_id\("([^"]+)"\)\.(\w+)\(\)', code_text):
-            order += 1
-            at_map = {"click": ActionType.CLICK, "fill": ActionType.TYPE,
-                      "press": ActionType.PRESS_KEY, "hover": ActionType.HOVER}
-            steps.append(Step(
-                step_Name=f"Step {order}: {m.group(2)} {m.group(1)}",
-                action_Type=at_map.get(m.group(2), ActionType.CLICK),
-                target_Selector=f"test-id={m.group(1)}",
-                step_Order=order,
-                timestamp=datetime.now().isoformat()))
-
-        # page.click("selector"), page.fill("selector", "value")
-        for m in re.finditer(
-                r'page\.(\w+)\("([^"]+)"(?:,\s*"([^"]*)")?\)', code_text):
-            method = m.group(1)
-            if method in ("goto", "get_by_role", "get_by_label", "get_by_text",
-                          "get_by_placeholder", "get_by_test_id"):
-                continue
-            at_map = {"click": ActionType.CLICK, "dblclick": ActionType.DOUBLE_CLICK,
-                      "fill": ActionType.TYPE, "press": ActionType.PRESS_KEY,
-                      "hover": ActionType.HOVER, "select_option": ActionType.SELECT,
-                      "check": ActionType.CHECK, "uncheck": ActionType.UNCHECK,
-                      "screenshot": ActionType.SCREENSHOT}
-            if method in at_map:
-                order += 1
-                steps.append(Step(
-                    step_Name=f"Step {order}: {method} {m.group(2)[:50]}",
-                    action_Type=at_map[method],
-                    target_Selector=m.group(2),
-                    input_Value=m.group(3) or "",
-                    step_Order=order,
-                    timestamp=datetime.now().isoformat()))
+                    steps.append(Step(
+                        step_Name=f"Step {order}: {at.value} {sel[:50]}",
+                        action_Type=at,
+                        target_Selector=sel,
+                        input_Value=inp,
+                        target_Description=sel,
+                        step_Order=order,
+                        timestamp=datetime.now().isoformat()))
+                    break
 
         return steps
 

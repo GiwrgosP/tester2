@@ -145,7 +145,7 @@ class _StepEditDialog(QDialog):
 
     def _load_lists(self):
         # Load action type
-        action_map = {v.value: k for k, v in ActionType.labels().items()}
+        action_map = {v: k.value for k, v in ActionType.labels().items()}
         current = self._step.action_Type.value
         for i in range(self.action_combo.count()):
             if self.action_combo.itemData(i) == current:
@@ -352,4 +352,3 @@ class StepsTab(QWidget):
             QMessageBox.warning(self, "Cannot Delete", f"This step is used by:\n\n{deps}")
             return
         self.refresh()
-
