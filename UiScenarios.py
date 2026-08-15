@@ -55,6 +55,7 @@ class _PickerDialog(QDialog):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        self.table.itemChanged.connect(self._update_count)
         layout.addWidget(self.table)
         btn_row = QHBoxLayout()
         self.select_all_btn = QPushButton("Select All")
@@ -84,7 +85,6 @@ class _PickerDialog(QDialog):
         self.table.setRowCount(0)
         filter_val = self.module_filter.currentData() or "all"
         search_text = self.search_input.text().strip().lower()
-        selected_count = 0
         for row_data in self._rows:
             module_ids = row_data.get("module_Ids", [])
             if filter_val == "all":
@@ -104,12 +104,19 @@ class _PickerDialog(QDialog):
             checkbox_item = QTableWidgetItem()
             checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             checkbox_item.setCheckState(Qt.Unchecked)
+            checkbox_item.setData(Qt.UserRole, row_data.get("id"))
             self.table.setItem(r, 0, checkbox_item)
-            if checkbox_item.checkState() == Qt.Checked:
-                selected_count += 1
             for col_idx, cell_text in enumerate(row_data.get("cells", [])):
                 self.table.setItem(r, col_idx + 1, QTableWidgetItem(str(cell_text)))
-        self.count_label.setText(f"{selected_count} selected")
+        self._update_count()
+
+    def _update_count(self, *args):
+        n = 0
+        for r in range(self.table.rowCount()):
+            it = self.table.item(r, 0)
+            if it and it.checkState() == Qt.Checked:
+                n += 1
+        self.count_label.setText(f"{n} selected")
 
     def _select_all(self):
         for i in range(self.table.rowCount()):
@@ -126,11 +133,13 @@ class _PickerDialog(QDialog):
         self._populate_table()
 
     def get_selected(self) -> list:
+        # IDs are stored on the checkbox item itself, so filtering/searching
+        # (which hides rows) can never shift the row -> id mapping.
         selected = []
         for r in range(self.table.rowCount()):
             checkbox_item = self.table.item(r, 0)
             if checkbox_item and checkbox_item.checkState() == Qt.Checked:
-                selected.append(self._rows[r]["id"])
+                selected.append(checkbox_item.data(Qt.UserRole))
         return selected
 
 
@@ -619,6 +628,15 @@ class ScenariosTab(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
+        # Filter by module (same logic as the Test Runner tab's test filter)
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Filter by module:"))
+        self.module_filter = QComboBox()
+        self.module_filter.currentIndexChanged.connect(lambda *_: self.refresh())
+        filter_row.addWidget(self.module_filter)
+        filter_row.addStretch()
+        layout.addLayout(filter_row)
+
         # Scenario table — read-only, click to edit
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
@@ -645,8 +663,32 @@ class ScenariosTab(QWidget):
         layout.addLayout(br)
 
     def refresh(self):
+        # Rebuild the module filter, keeping the current selection
+        self.module_filter.blockSignals(True)
+        cur = self.module_filter.currentData() if self.module_filter.count() > 0 else "all"
+        self.module_filter.clear()
+        self.module_filter.addItem("All", "all")
+        self.module_filter.addItem("No Module", "none")
+        for m in self.db.list_modules():
+            self.module_filter.addItem(f"[{m.module_Id}] {m.module_Name}", m.module_Id)
+        for i in range(self.module_filter.count()):
+            if self.module_filter.itemData(i) == cur:
+                self.module_filter.setCurrentIndex(i)
+                break
+        self.module_filter.blockSignals(False)
+
+        filter_val = self.module_filter.currentData() if self.module_filter.count() > 0 else "all"
+        all_s = self.db.list_scenarios()
+        if filter_val == "all":
+            scenarios = all_s
+        elif filter_val == "none":
+            scenarios = [s for s in all_s if not s.module_Ids]
+        else:
+            mid = int(filter_val)
+            scenarios = [s for s in all_s if mid in (s.module_Ids or [])]
+
         self.table.setRowCount(0)
-        for s in self.db.list_scenarios():
+        for s in scenarios:
             r = self.table.rowCount()
             self.table.insertRow(r)
             self.table.setItem(r, 0, QTableWidgetItem(str(s.scenario_Id)))
@@ -694,4 +736,7 @@ class ScenariosTab(QWidget):
             QMessageBox.warning(self, "Cannot Delete", f"This scenario is used by:\n\n{deps}")
             return
         self.refresh()
+
+
+
 

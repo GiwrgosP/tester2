@@ -229,6 +229,15 @@ class StepsTab(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
+        # Filter by module (same logic as the Test Runner tab's test filter)
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Filter by module:"))
+        self.module_filter = QComboBox()
+        self.module_filter.currentIndexChanged.connect(lambda *_: self.refresh())
+        filter_row.addWidget(self.module_filter)
+        filter_row.addStretch()
+        layout.addLayout(filter_row)
+
         # Table
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(["ID", "Name", "Action", "Selector", "Input", "Assertions"])
@@ -255,8 +264,32 @@ class StepsTab(QWidget):
         layout.addLayout(btn_row)
 
     def refresh(self):
+        # Rebuild the module filter, keeping the current selection
+        self.module_filter.blockSignals(True)
+        cur = self.module_filter.currentData() if self.module_filter.count() > 0 else "all"
+        self.module_filter.clear()
+        self.module_filter.addItem("All", "all")
+        self.module_filter.addItem("No Module", "none")
+        for m in self.db.list_modules():
+            self.module_filter.addItem(f"[{m.module_Id}] {m.module_Name}", m.module_Id)
+        for i in range(self.module_filter.count()):
+            if self.module_filter.itemData(i) == cur:
+                self.module_filter.setCurrentIndex(i)
+                break
+        self.module_filter.blockSignals(False)
+
+        filter_val = self.module_filter.currentData() if self.module_filter.count() > 0 else "all"
+        all_steps = self.db.list_steps()
+        if filter_val == "all":
+            steps = all_steps
+        elif filter_val == "none":
+            steps = [s for s in all_steps if not s.module_Ids]
+        else:
+            mid = int(filter_val)
+            steps = [s for s in all_steps if mid in (s.module_Ids or [])]
+
         self.table.setRowCount(0)
-        for s in self.db.list_steps():
+        for s in steps:
             r = self.table.rowCount()
             self.table.insertRow(r)
             self.table.setItem(r, 0, QTableWidgetItem(str(s.step_Id)))
@@ -301,4 +334,5 @@ class StepsTab(QWidget):
             QMessageBox.warning(self, "Cannot Delete", f"This step is used by:\n\n{deps}")
             return
         self.refresh()
+
 

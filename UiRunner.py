@@ -1,5 +1,7 @@
 """
-Runner tab v7 — config selector, scenario selection, run, results.
+Runner tab v8 — config selector (fallback env), TEST selection, run, results.
+Tests run on the environment assigned to each test; the config selector
+here is only the fallback for tests that have no environment assigned.
 """
 from __future__ import annotations
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
@@ -20,11 +22,12 @@ class TestRunThread(QThread):
     step_signal = pyqtSignal(str, bool)
     assertion_signal = pyqtSignal(str, str)
     scenario_signal = pyqtSignal(str, bool)
+    test_signal = pyqtSignal(str, bool)
 
-    def __init__(self, runner, scenario_ids):
+    def __init__(self, runner, test_ids):
         super().__init__()
         self.runner = runner
-        self.scenario_ids = scenario_ids
+        self.test_ids = test_ids
 
     def run(self):
         try:
@@ -33,8 +36,9 @@ class TestRunThread(QThread):
             self.runner.step_completed.connect(self.step_signal.emit)
             self.runner.assertion_evaluated.connect(self.assertion_signal.emit)
             self.runner.scenario_completed.connect(self.scenario_signal.emit)
+            self.runner.test_completed.connect(self.test_signal.emit)
             self.runner.finished.connect(self.result_signal.emit)
-            self.runner.run_scenarios(self.scenario_ids)
+            self.runner.run_tests(self.test_ids)
         except Exception as e:
             self.log_signal.emit(f"FATAL ERROR: {e}")
             self.result_signal.emit(None)
@@ -68,18 +72,18 @@ class RunnerTab(QWidget):
         cl.addWidget(self.refresh_cfg_btn)
         layout.addWidget(cg)
 
-        # Scenarios
-        sg = QGroupBox("Scenario Selection")
+        # Tests
+        sg = QGroupBox("Test Selection")
         sl = QVBoxLayout(sg)
         sf = QHBoxLayout()
         sf.addWidget(QLabel("Filter by module:"))
-        self.scenario_module_filter = QComboBox()
-        self.scenario_module_filter.currentIndexChanged.connect(lambda: self.refresh())
-        sf.addWidget(self.scenario_module_filter)
+        self.test_module_filter = QComboBox()
+        self.test_module_filter.currentIndexChanged.connect(lambda: self.refresh())
+        sf.addWidget(self.test_module_filter)
         sf.addStretch()
         sl.addLayout(sf)
-        self.scenario_list = QListWidget()
-        sl.addWidget(self.scenario_list)
+        self.test_list = QListWidget()
+        sl.addWidget(self.test_list)
         sb = QHBoxLayout()
         self.select_all_btn = QPushButton("Select All")
         self.select_all_btn.clicked.connect(self._sel_all)
@@ -146,55 +150,56 @@ class RunnerTab(QWidget):
 
     def refresh(self):
         self._refresh_configs()
-        self.scenario_module_filter.blockSignals(True)
-        cur = self.scenario_module_filter.currentData() if self.scenario_module_filter.count() > 0 else "all"
-        self.scenario_module_filter.clear()
-        self.scenario_module_filter.addItem("All", "all")
-        self.scenario_module_filter.addItem("No Module", "none")
+        self.test_module_filter.blockSignals(True)
+        cur = self.test_module_filter.currentData() if self.test_module_filter.count() > 0 else "all"
+        self.test_module_filter.clear()
+        self.test_module_filter.addItem("All", "all")
+        self.test_module_filter.addItem("No Module", "none")
         for m in self.db.list_modules():
-            self.scenario_module_filter.addItem(f"[{m.module_Id}] {m.module_Name}", m.module_Id)
-        for i in range(self.scenario_module_filter.count()):
-            if self.scenario_module_filter.itemData(i) == cur:
-                self.scenario_module_filter.setCurrentIndex(i)
+            self.test_module_filter.addItem(f"[{m.module_Id}] {m.module_Name}", m.module_Id)
+        for i in range(self.test_module_filter.count()):
+            if self.test_module_filter.itemData(i) == cur:
+                self.test_module_filter.setCurrentIndex(i)
                 break
-        self.scenario_module_filter.blockSignals(False)
+        self.test_module_filter.blockSignals(False)
 
-        filter_val = self.scenario_module_filter.currentData() if self.scenario_module_filter.count() > 0 else "all"
-        all_s = self.db.list_scenarios()
+        filter_val = self.test_module_filter.currentData() if self.test_module_filter.count() > 0 else "all"
+        all_t = self.db.list_tests()
         if filter_val == "all":
-            scenarios = all_s
+            tests = all_t
         elif filter_val == "none":
-            scenarios = [s for s in all_s if not s.module_Ids]
+            tests = [t for t in all_t if not t.module_Ids]
         else:
             mid = int(filter_val)
-            scenarios = [s for s in all_s if mid in (s.module_Ids or [])]
+            tests = [t for t in all_t if mid in (t.module_Ids or [])]
 
-        self.scenario_list.clear()
-        for s in scenarios:
-            ds_info = ""
-            if s.data_Set_Id and s.data_Set_Id > 0:
-                ds = self.db.load_data_set(s.data_Set_Id)
-                if ds:
-                    ds_info = f" | Data: {ds.data_Set_Name} ({len(ds.rows)} rows)"
-            item = QListWidgetItem(f"[{s.scenario_Id}] {s.scenario_Name}{ds_info}")
+        self.test_list.clear()
+        for t in tests:
+            env_info = "Env: run-time choice"
+            if t.config_Id and t.config_Id > 0:
+                cfg = self.db.load_config_by_id(t.config_Id)
+                env_info = f"Env: {cfg.config_Name}" if cfg else f"Env: (missing #{t.config_Id})"
+            n_scen = len(t.scenario_Ids or [])
+            item = QListWidgetItem(
+                f"[{t.test_Id}] {t.test_Name} | {env_info} | {n_scen} scenario{'s' if n_scen != 1 else ''}")
             item.setCheckState(Qt.Unchecked)
-            item.setData(Qt.UserRole, s.scenario_Id)
-            self.scenario_list.addItem(item)
+            item.setData(Qt.UserRole, t.test_Id)
+            self.test_list.addItem(item)
 
     def _sel_all(self):
-        for i in range(self.scenario_list.count()):
-            self.scenario_list.item(i).setCheckState(Qt.Checked)
+        for i in range(self.test_list.count()):
+            self.test_list.item(i).setCheckState(Qt.Checked)
 
     def _desel_all(self):
-        for i in range(self.scenario_list.count()):
-            self.scenario_list.item(i).setCheckState(Qt.Unchecked)
+        for i in range(self.test_list.count()):
+            self.test_list.item(i).setCheckState(Qt.Unchecked)
 
     def _run(self):
-        ids = [self.scenario_list.item(i).data(Qt.UserRole)
-               for i in range(self.scenario_list.count())
-               if self.scenario_list.item(i).checkState() == Qt.Checked]
+        ids = [self.test_list.item(i).data(Qt.UserRole)
+               for i in range(self.test_list.count())
+               if self.test_list.item(i).checkState() == Qt.Checked]
         if not ids:
-            QMessageBox.warning(self, "None", "Select at least one scenario.")
+            QMessageBox.warning(self, "None", "Select at least one test.")
             return
 
         cfg = None
@@ -222,6 +227,8 @@ class RunnerTab(QWidget):
             lambda n, s: self._log(f"  Assertion: {n} -> {s}"))
         self.run_thread.scenario_signal.connect(
             lambda n, ok: self._log(f"Scenario: {n} -> {'PASSED' if ok else 'FAILED'}"))
+        self.run_thread.test_signal.connect(
+            lambda n, ok: self._log(f"TEST: {n} -> {'PASSED' if ok else 'FAILED'}"))
         self.run_thread.start()
 
     def _log(self, text):
@@ -277,4 +284,6 @@ class RunnerTab(QWidget):
         ch, ok = QInputDialog.getItem(self, "Load", "Select:", names, 0, False)
         if ok and ch:
             self._finished(results[names.index(ch)])
+
+
 

@@ -6,6 +6,7 @@ from UiSteps import StepsTab
 from UiRecord import RecordTab
 from UiAssertions import AssertionsTab
 from UiScenarios import ScenariosTab
+from UiTests import TestsTab
 from UiModules import ModulesTab
 from UiDataSets import DataSetsTab
 from UiRunner import RunnerTab
@@ -39,15 +40,19 @@ class MainWindow(QMainWindow):
         self.scenarios_tab = ScenariosTab(self.db)
         tabs.addTab(self.scenarios_tab, "📁 Scenarios")
 
-        # Tab 6: Modules
+        # Tab 6: Tests (named scenario suites on an environment)
+        self.tests_tab = TestsTab(self.db)
+        tabs.addTab(self.tests_tab, "🧪 Tests")
+
+        # Tab 7: Modules
         self.modules_tab = ModulesTab(self.db)
         tabs.addTab(self.modules_tab, "🏷 Modules")
 
-        # Tab 7: Data Sets
+        # Tab 8: Data Sets
         self.datasets_tab = DataSetsTab(self.db)
         tabs.addTab(self.datasets_tab, "📊 Data Sets")
 
-        # Tab 8: Runner
+        # Tab 9: Runner
         self.runner_tab = RunnerTab(self.db, self.config_tab)
         tabs.addTab(self.runner_tab, "▶ Test Runner")
 
@@ -75,8 +80,9 @@ class MainWindow(QMainWindow):
 
     def _refresh(self):
         for tab in [self.config_tab, self.steps_tab, self.record_tab,
-                     self.assertions_tab, self.scenarios_tab,
+                     self.assertions_tab, self.scenarios_tab, self.tests_tab,
                      self.modules_tab, self.datasets_tab, self.runner_tab]:
             tab.refresh()
         self.statusBar().showMessage("All tabs refreshed", 3000)
+
 

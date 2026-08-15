@@ -352,6 +352,14 @@ def _eval_dialog_message(page, a, locator, expected):
 @AssertionEvaluator.register("element_visible")
 def _eval_visible(page, a, locator, expected):
     is_vis = locator.is_visible()
+    # Optional comparison: empty Expected = "must be visible";
+    # otherwise compare the visibility state against Expected ("true"/"false").
+    if expected and expected.strip():
+        passed = AssertionEvaluator._cmp(str(is_vis).lower(), expected.strip().lower(),
+                                         a.comparison_Operator)
+        return AssertionResult(assertion_Id=a.assertion_Id, assertion_Name=a.assertion_Name,
+                               expected_Value=expected, actual_Value=str(is_vis),
+                               status=ResultStatus.PASSED if passed else ResultStatus.FAILED)
     return AssertionResult(assertion_Id=a.assertion_Id, assertion_Name=a.assertion_Name,
                            actual_Value=str(is_vis),
                            status=ResultStatus.PASSED if is_vis else ResultStatus.FAILED)
@@ -359,6 +367,12 @@ def _eval_visible(page, a, locator, expected):
 @AssertionEvaluator.register("element_not_visible")
 def _eval_not_visible(page, a, locator, expected):
     is_vis = locator.is_visible()
+    if expected and expected.strip():
+        passed = AssertionEvaluator._cmp(str(not is_vis).lower(), expected.strip().lower(),
+                                         a.comparison_Operator)
+        return AssertionResult(assertion_Id=a.assertion_Id, assertion_Name=a.assertion_Name,
+                               expected_Value=expected, actual_Value=str(not is_vis),
+                               status=ResultStatus.PASSED if passed else ResultStatus.FAILED)
     return AssertionResult(assertion_Id=a.assertion_Id, assertion_Name=a.assertion_Name,
                            actual_Value=str(not is_vis),
                            status=ResultStatus.PASSED if not is_vis else ResultStatus.FAILED)
@@ -366,6 +380,12 @@ def _eval_not_visible(page, a, locator, expected):
 @AssertionEvaluator.register("button_enabled")
 def _eval_enabled(page, a, locator, expected):
     is_en = locator.is_enabled()
+    if expected and expected.strip():
+        passed = AssertionEvaluator._cmp(str(is_en).lower(), expected.strip().lower(),
+                                         a.comparison_Operator)
+        return AssertionResult(assertion_Id=a.assertion_Id, assertion_Name=a.assertion_Name,
+                               expected_Value=expected, actual_Value=str(is_en),
+                               status=ResultStatus.PASSED if passed else ResultStatus.FAILED)
     return AssertionResult(assertion_Id=a.assertion_Id, assertion_Name=a.assertion_Name,
                            actual_Value=str(is_en),
                            status=ResultStatus.PASSED if is_en else ResultStatus.FAILED)
@@ -373,6 +393,12 @@ def _eval_enabled(page, a, locator, expected):
 @AssertionEvaluator.register("button_disabled")
 def _eval_disabled(page, a, locator, expected):
     is_en = locator.is_enabled()
+    if expected and expected.strip():
+        passed = AssertionEvaluator._cmp(str(not is_en).lower(), expected.strip().lower(),
+                                         a.comparison_Operator)
+        return AssertionResult(assertion_Id=a.assertion_Id, assertion_Name=a.assertion_Name,
+                               expected_Value=expected, actual_Value=str(not is_en),
+                               status=ResultStatus.PASSED if passed else ResultStatus.FAILED)
     return AssertionResult(assertion_Id=a.assertion_Id, assertion_Name=a.assertion_Name,
                            actual_Value=str(not is_en),
                            status=ResultStatus.PASSED if not is_en else ResultStatus.FAILED)
@@ -398,16 +424,27 @@ def _eval_error(page, a, locator, expected):
 @AssertionEvaluator.register("text_contains")
 def _eval_text_contains(page, a, locator, expected):
     actual = locator.text_content() or ""
-    passed = expected in actual
+    # Honour the Comparison operator; default (Equals) keeps the classic "contains".
+    op = a.comparison_Operator
+    if op == ComparisonOperator.EQUALS:
+        passed = expected in actual
+    else:
+        passed = AssertionEvaluator._cmp(actual, expected, op)
     return AssertionResult(assertion_Id=a.assertion_Id, assertion_Name=a.assertion_Name,
                            expected_Value=expected, actual_Value=actual,
                            status=ResultStatus.PASSED if passed else ResultStatus.FAILED)
 
 @AssertionEvaluator.register("attribute_value")
 def _eval_attribute(page, a, locator, expected):
-    parts = expected.split("=", 1)
-    attr_name = parts[0]
-    exp_val = parts[1] if len(parts) > 1 else ""
+    # Attribute name comes from Assertion.attribute_Name when set,
+    # otherwise from the legacy "name=value" syntax in Expected.
+    if getattr(a, "attribute_Name", "") and a.attribute_Name.strip():
+        attr_name = a.attribute_Name.strip()
+        exp_val = expected
+    else:
+        parts = expected.split("=", 1)
+        attr_name = parts[0]
+        exp_val = parts[1] if len(parts) > 1 else ""
     actual = locator.get_attribute(attr_name) or ""
     passed = AssertionEvaluator._cmp(actual, exp_val, a.comparison_Operator)
     return AssertionResult(assertion_Id=a.assertion_Id, assertion_Name=a.assertion_Name,
@@ -417,7 +454,12 @@ def _eval_attribute(page, a, locator, expected):
 @AssertionEvaluator.register("url_contains")
 def _eval_url(page, a, locator, expected):
     actual = page.url
-    passed = expected in actual
+    # Honour the Comparison operator; default (Equals) keeps the classic "contains".
+    op = a.comparison_Operator
+    if op == ComparisonOperator.EQUALS:
+        passed = expected in actual
+    else:
+        passed = AssertionEvaluator._cmp(actual, expected, op)
     return AssertionResult(assertion_Id=a.assertion_Id, assertion_Name=a.assertion_Name,
                            expected_Value=expected, actual_Value=actual,
                            status=ResultStatus.PASSED if passed else ResultStatus.FAILED)
@@ -497,4 +539,5 @@ def _eval_network_error(page, a, selector, expected):
             expected_Value="no_errors", actual_Value=f"{len(errors_found)} error(s)",
             status=ResultStatus.PASSED if passed else ResultStatus.FAILED,
             error_Message=error_detail if errors_found else "")
+
 

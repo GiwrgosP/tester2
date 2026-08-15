@@ -1,8 +1,9 @@
 """
 Data models for ERP Test Automation Framework v7.
 Login fields removed — login is regular steps with {{global.var}}.
-Includes: Module, DataSet, Step, Assertion, AssertionResult, TestResult, Scenario.
+Includes: Module, DataSet, Step, Assertion, AssertionResult, TestResult, Scenario, Test.
 Scenario has branch flag, pre/post conditions, step conditions.
+Test groups scenarios under an environment, with module assignment.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
@@ -424,4 +425,33 @@ class Scenario:
         if isinstance(data, str):
             data = json.loads(data)
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class Test:
+    """A named, reusable test: an ordered list of scenarios executed
+    on a chosen environment (env_config). Modules work exactly like
+    they do on scenarios/steps/assertions."""
+    test_Id: int = 0
+    test_Name: str = ""
+    test_Description: str = ""
+    config_Id: int = 0                      # environment (0 = choose at run time)
+    scenario_Ids: list = field(default_factory=list)   # ordered execution list
+    module_Ids: list = field(default_factory=list)
+    created_At: str = ""
+
+    def __post_init__(self):
+        if not self.created_At:
+            self.created_At = datetime.now().isoformat()
+
+    def to_json(self):
+        return json.dumps(_to_dict(self), indent=2)
+
+    @classmethod
+    def from_json(cls, data):
+        if isinstance(data, str):
+            data = json.loads(data)
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
 

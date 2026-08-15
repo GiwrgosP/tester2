@@ -104,6 +104,16 @@ class EnvironmentConfig:
         data = json.loads(json_str) if isinstance(json_str, str) else json_str
         return cls.from_dict(data)
 
+    def get_Global_Variables_Dict(self) -> dict:
+        """Return global variables as a {var_Name: var_Value} dict,
+        ready for {{global.var}} substitution during a run."""
+        result = {}
+        for gv in (self.global_Variables or []):
+            if isinstance(gv, dict):
+                gv = GlobalVariable.from_dict(gv)
+            result[gv.var_Name] = gv.var_Value
+        return result
+
     def get_playwright_browser_name(self) -> str:
         if self.browser_type == BrowserType.FIREFOX:
             return "firefox"
@@ -148,4 +158,5 @@ class EnvironmentConfig:
             }
         else:
             return {"viewport": {"width": 1920, "height": 1080}}
+
 

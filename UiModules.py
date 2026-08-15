@@ -199,10 +199,10 @@ class ModulesTab(QWidget):
             scenarios = [s for s in self.db.list_scenarios() if not s.module_Ids]
             datasets = [d for d in self.db.list_data_sets() if not d.module_Ids]
         else:
-            steps = self.db.get_by_module(module_id, "step")
-            assertions = self.db.get_by_module(module_id, "assertion")
-            scenarios = self.db.get_by_module(module_id, "scenario")
-            datasets = self.db.get_by_module(module_id, "data_set")
+            steps = self.db.get_By_Module("step", module_id)
+            assertions = self.db.get_By_Module("assertion", module_id)
+            scenarios = self.db.get_By_Module("scenario", module_id)
+            datasets = self.db.get_By_Module("data_set", module_id)
 
         # Populate steps
         for s in steps:
@@ -279,4 +279,5 @@ class ModulesTab(QWidget):
         if QMessageBox.question(self, "Delete", f"Delete module '{name}'?") == QMessageBox.Yes:
             self.db.delete_module(mid)
             self.refresh()
+
 

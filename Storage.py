@@ -10,7 +10,7 @@ import os
 import threading
 from datetime import datetime
 from Config import EnvironmentConfig
-from Models import Module, DataSet, Step, Assertion, Scenario, TestResult
+from Models import Module, DataSet, Step, Assertion, Scenario, TestResult, Test
 
 
 class DataBase:
@@ -53,6 +53,10 @@ class DataBase:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     data TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS tests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    data TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS test_results (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     data TEXT NOT NULL
@@ -73,10 +77,22 @@ class DataBase:
             "step": "steps",
             "assertion": "assertions",
             "scenario": "scenarios",
+            "test": "tests",
             "test_result": "test_results",
             "env_config": "env_config",
         }
         return mapping[entity_type]
+
+    _ID_FIELDS = {
+        "module": "module_Id",
+        "data_set": "data_Set_Id",
+        "step": "step_Id",
+        "assertion": "assertion_Id",
+        "scenario": "scenario_Id",
+        "test": "test_Id",
+        "test_result": "result_Id",
+        "env_config": "config_Id",
+    }
 
     def _next_id(self, entity_type: str) -> int:
         with self._lock:
@@ -93,30 +109,8 @@ class DataBase:
                 return 0
 
             # Determine ID
-            if entity_type == "module":
-                eid = entity.module_Id
-                id_field = "module_Id"
-            elif entity_type == "data_set":
-                eid = entity.data_Set_Id
-                id_field = "data_Set_Id"
-            elif entity_type == "step":
-                eid = entity.step_Id
-                id_field = "step_Id"
-            elif entity_type == "assertion":
-                eid = entity.assertion_Id
-                id_field = "assertion_Id"
-            elif entity_type == "scenario":
-                eid = entity.scenario_Id
-                id_field = "scenario_Id"
-            elif entity_type == "test_result":
-                eid = entity.result_Id
-                id_field = "result_Id"
-            elif entity_type == "env_config":
-                eid = entity.config_Id
-                id_field = "config_Id"
-            else:
-                eid = 0
-                id_field = "id"
+            id_field = self._ID_FIELDS.get(entity_type, "id")
+            eid = getattr(entity, id_field, 0) or 0
 
             if eid == 0:
                 eid = self._next_id(entity_type)
@@ -156,6 +150,8 @@ class DataBase:
                 return Assertion.from_json(data)
             elif entity_type == "scenario":
                 return Scenario.from_json(data)
+            elif entity_type == "test":
+                return Test.from_json(data)
             elif entity_type == "test_result":
                 return TestResult.from_json(data)
             elif entity_type == "env_config":
@@ -180,6 +176,8 @@ class DataBase:
                     results.append(Assertion.from_json(data))
                 elif entity_type == "scenario":
                     results.append(Scenario.from_json(data))
+                elif entity_type == "test":
+                    results.append(Test.from_json(data))
                 elif entity_type == "test_result":
                     results.append(TestResult.from_json(data))
                 elif entity_type == "env_config":
@@ -218,15 +216,30 @@ class DataBase:
                        getattr(s, 'post_On_True_Scenario_Id', 0) == entity_id or \
                        getattr(s, 'post_On_False_Scenario_Id', 0) == entity_id:
                         dependents.append(f"Scenario [{s.scenario_Id}] {s.scenario_Name} (as branch)")
+                # Check tests
+                for t in self.load_all("test"):
+                    if entity_id in (t.scenario_Ids or []):
+                        dependents.append(f"Test [{t.test_Id}] {t.test_Name}")
             elif entity_type == "data_set":
                 for s in self.load_all("scenario"):
                     if s.data_Set_Id == entity_id:
                         dependents.append(f"Scenario [{s.scenario_Id}] {s.scenario_Name}")
+            elif entity_type == "env_config":
+                for t in self.load_all("test"):
+                    if getattr(t, 'config_Id', 0) == entity_id:
+                        dependents.append(f"Test [{t.test_Id}] {t.test_Name}")
             elif entity_type == "module":
-                for entity_type_check in ["step", "assertion", "scenario", "data_set"]:
+                _names = {
+                    "step": "step_Name", "assertion": "assertion_Name",
+                    "scenario": "scenario_Name", "data_set": "data_Set_Name",
+                    "test": "test_Name",
+                }
+                for entity_type_check in ["step", "assertion", "scenario", "data_set", "test"]:
                     for e in self.load_all(entity_type_check):
-                        if entity_id in (e.module_Ids or []):
-                            dependents.append(f"{entity_type_check.capitalize()} [{getattr(e, id_field, 0)}] {getattr(e, 'step_Name', getattr(e, 'assertion_Name', getattr(e, 'scenario_Name', '')))}")
+                        if entity_id in (getattr(e, 'module_Ids', None) or []):
+                            eid = getattr(e, self._ID_FIELDS.get(entity_type_check, "id"), 0)
+                            ename = getattr(e, _names.get(entity_type_check, ""), "")
+                            dependents.append(f"{entity_type_check.replace('_', ' ').capitalize()} [{eid}] {ename}")
 
             if dependents:
                 return {"deleted": False, "blocked": True, "dependents": dependents}
@@ -273,6 +286,12 @@ class DataBase:
     def list_scenarios(self) -> list: return self.load_all("scenario")
     def delete_scenario(self, sid: int) -> dict: return self.delete("scenario", sid)
 
+    # Tests
+    def save_test(self, t: Test) -> int: return self.save(t, "test")
+    def load_test(self, tid: int) -> Test | None: return self.load("test", tid)
+    def list_tests(self) -> list: return self.load_all("test")
+    def delete_test(self, tid: int) -> dict: return self.delete("test", tid)
+
     # Test Results
     def save_result(self, r: TestResult) -> int: return self.save(r, "test_result")
     def load_result(self, rid: int) -> TestResult | None: return self.load("test_result", rid)
@@ -292,4 +311,8 @@ class DataBase:
 
     def close(self):
         self._conn.close()
+
+
+
+
 

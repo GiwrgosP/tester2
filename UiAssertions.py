@@ -175,6 +175,15 @@ class AssertionsTab(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
+        # Filter by module (same logic as the Test Runner tab's test filter)
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Filter by module:"))
+        self.module_filter = QComboBox()
+        self.module_filter.currentIndexChanged.connect(lambda *_: self.refresh())
+        filter_row.addWidget(self.module_filter)
+        filter_row.addStretch()
+        layout.addLayout(filter_row)
+
         btn_row = QHBoxLayout()
         self.add_btn = QPushButton("New Assertion")
         self.add_btn.clicked.connect(self._add_assertion)
@@ -196,8 +205,32 @@ class AssertionsTab(QWidget):
         layout.addWidget(self.table)
 
     def refresh(self):
+        # Rebuild the module filter, keeping the current selection
+        self.module_filter.blockSignals(True)
+        cur = self.module_filter.currentData() if self.module_filter.count() > 0 else "all"
+        self.module_filter.clear()
+        self.module_filter.addItem("All", "all")
+        self.module_filter.addItem("No Module", "none")
+        for m in self.db.list_modules():
+            self.module_filter.addItem(f"[{m.module_Id}] {m.module_Name}", m.module_Id)
+        for i in range(self.module_filter.count()):
+            if self.module_filter.itemData(i) == cur:
+                self.module_filter.setCurrentIndex(i)
+                break
+        self.module_filter.blockSignals(False)
+
+        filter_val = self.module_filter.currentData() if self.module_filter.count() > 0 else "all"
+        all_a = self.db.list_assertions()
+        if filter_val == "all":
+            assertions = all_a
+        elif filter_val == "none":
+            assertions = [a for a in all_a if not a.module_Ids]
+        else:
+            mid = int(filter_val)
+            assertions = [a for a in all_a if mid in (a.module_Ids or [])]
+
         self.table.setRowCount(0)
-        for a in self.db.list_assertions():
+        for a in assertions:
             r = self.table.rowCount()
             self.table.insertRow(r)
             self.table.setItem(r, 0, QTableWidgetItem(str(a.assertion_Id)))
@@ -244,4 +277,5 @@ class AssertionsTab(QWidget):
         if QMessageBox.question(self, "Delete", f"Delete assertion '{name}'?") == QMessageBox.Yes:
             self.db.delete_assertion(aid)
             self.refresh()
+
 

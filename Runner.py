@@ -2,6 +2,8 @@
 Test execution engine v7. Loads global variables from config, passes to executors.
 Enhanced page-load waiting. Conditional branching (pre/post conditions).
 Network response tracking for assertions.
+Can run loose scenario lists (run_scenarios) or saved Tests (run_tests),
+where each test carries its own environment.
 """
 from __future__ import annotations
 import time, os
@@ -19,6 +21,7 @@ class TestRunner(QObject):
     step_completed = pyqtSignal(str, bool)
     assertion_evaluated = pyqtSignal(str, str)
     scenario_completed = pyqtSignal(str, bool)
+    test_completed = pyqtSignal(str, bool)
     finished = pyqtSignal(object)
 
     def __init__(self, env_config: EnvironmentConfig, db: DataBase):
@@ -34,89 +37,140 @@ class TestRunner(QObject):
         self._responses = []
         self._failed_requests = []
 
+    # ── Run entry points ────────────────────────────────────
+
     def run_scenarios(self, scenario_ids: list) -> TestResult:
-        t0 = time.time()
+        """Run a plain list of scenarios on the runner's own environment."""
+        self._reset_run()
+        self._sc_total = len(scenario_ids)
         self.log_message.emit("Starting test execution...")
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            self._run_with_browser(p, self.env, scenario_ids)
+        return self._finalize_result(
+            f"Test Run {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            total_scenarios=len(scenario_ids))
+
+    def run_tests(self, test_ids: list) -> TestResult:
+        """Run saved Tests. Each test uses the environment assigned to it
+        (falling back to the runner's environment when it has none)."""
+        self._reset_run()
+        tests = []
+        for tid in test_ids:
+            t = self.db.load_test(tid)
+            if t is None:
+                self.log_message.emit(f"Test {tid} not found, skipping.")
+                continue
+            tests.append(t)
+
+        self._sc_total = sum(len(t.scenario_Ids or []) for t in tests)
+        self.log_message.emit("Starting test execution...")
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            for t in tests:
+                cfg = self.db.load_config_by_id(t.config_Id) if t.config_Id else None
+                env = cfg or self.env
+                self.log_message.emit(
+                    f"\n===== TEST: {t.test_Name} "
+                    f"(env: {getattr(env, 'config_Name', '') or 'default'}) =====")
+                fails_before = self._sfail
+                self._run_with_browser(p, env, t.scenario_Ids or [])
+                self.test_completed.emit(t.test_Name, self._sfail == fails_before)
+
+        names = ", ".join(t.test_Name for t in tests) or "run"
+        return self._finalize_result(f"Tests: {names}", total_scenarios=self._sc_total)
+
+    # ── Shared run internals ────────────────────────────────
+
+    def _reset_run(self):
+        self._t0 = time.time()
         self._ar = []
         self._sp = 0
         self._sf = 0
         self._spass = 0
         self._sfail = 0
+        self._sc_done = 0
+        self._sc_total = 0
+        self._responses = []
+        self._failed_requests = []
 
-        self._global_vars = self.env.get_Global_Variables_Dict()
+    def _run_with_browser(self, p, env, scenario_ids: list):
+        """Launch a browser for the given environment and run the scenarios."""
+        self._global_vars = env.get_Global_Variables_Dict()
         if self._global_vars:
             self.log_message.emit(f"Loaded {len(self._global_vars)} global variables: {', '.join(self._global_vars.keys())}")
 
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            bn = self.env.get_playwright_browser_name()
-            ch = self.env.get_playwright_launch_channel()
-            kw = {"headless": self.env.headless}
-            if ch:
-                kw["channel"] = ch
-            if bn == "firefox":
-                br = p.firefox.launch(**kw)
-            elif bn == "webkit":
-                br = p.webkit.launch(**kw)
-            else:
-                br = p.chromium.launch(**kw)
+        bn = env.get_playwright_browser_name()
+        ch = env.get_playwright_launch_channel()
+        kw = {"headless": env.headless}
+        if ch:
+            kw["channel"] = ch
+        if bn == "firefox":
+            br = p.firefox.launch(**kw)
+        elif bn == "webkit":
+            br = p.webkit.launch(**kw)
+        else:
+            br = p.chromium.launch(**kw)
 
-            # Build context with device descriptor
-            device_descriptor = self.env.get_device_descriptor()
-            ctx = br.new_context(**device_descriptor)
-            page = ctx.new_page()
-            page.set_default_timeout(self.env.timeout_sec * 1000)
+        # Build context with device descriptor
+        device_descriptor = env.get_device_descriptor()
+        ctx = br.new_context(**device_descriptor)
+        page = ctx.new_page()
+        page.set_default_timeout(env.timeout_sec * 1000)
 
-            # Set up network response tracking for assertions
-            page.on("response", lambda r: self._responses.append({"url": r.url, "status": r.status}))
-            page.on("requestfailed", lambda req: self._failed_requests.append({"url": req.url, "error": str(req.failure)}))
-            AssertionEvaluator._responses = self._responses
-            AssertionEvaluator._failed_requests = self._failed_requests
+        # Set up network response tracking for assertions
+        page.on("response", lambda r: self._responses.append({"url": r.url, "status": r.status}))
+        page.on("requestfailed", lambda req: self._failed_requests.append({"url": req.url, "error": str(req.failure)}))
+        AssertionEvaluator._responses = self._responses
+        AssertionEvaluator._failed_requests = self._failed_requests
 
-            device_name = str(self.env.device_type.value)
-            self.log_message.emit(f"Browser: {bn} | Device: {device_name} | Headless: {self.env.headless}")
-            self.log_message.emit(f"Context viewport: {device_descriptor.get('viewport', 'default')}")
+        device_name = str(env.device_type.value)
+        self.log_message.emit(f"Browser: {bn} | Device: {device_name} | Headless: {env.headless}")
+        self.log_message.emit(f"Context viewport: {device_descriptor.get('viewport', 'default')}")
 
-            if self.env.web_app_url:
-                page.goto(self.env.web_app_url)
-                self._wait_for_page_load(page)
+        if env.web_app_url:
+            page.goto(env.web_app_url)
+            self._wait_for_page_load(page)
 
-            total = len(scenario_ids)
-            for i, sid in enumerate(scenario_ids):
-                sc = self.db.load_scenario(sid)
-                if sc is None:
-                    continue
-                self.log_message.emit(f"\n--- Running: {sc.scenario_Name} ---")
+        for sid in scenario_ids:
+            sc = self.db.load_scenario(sid)
+            if sc is None:
+                self._sc_done += 1
+                continue
+            self.log_message.emit(f"\n--- Running: {sc.scenario_Name} ---")
 
-                # Data-driven
-                data_rows = [None]
-                if sc.data_Set_Id and sc.data_Set_Id > 0:
-                    ds = self.db.load_data_set(sc.data_Set_Id)
-                    if ds and ds.rows:
-                        data_rows = ds.rows
-                        self.log_message.emit(f"  Data set: {ds.data_Set_Name} ({len(ds.rows)} rows)")
+            # Data-driven
+            data_rows = [None]
+            if sc.data_Set_Id and sc.data_Set_Id > 0:
+                ds = self.db.load_data_set(sc.data_Set_Id)
+                if ds and ds.rows:
+                    data_rows = ds.rows
+                    self.log_message.emit(f"  Data set: {ds.data_Set_Name} ({len(ds.rows)} rows)")
 
-                for row_idx, row in enumerate(data_rows):
-                    if row is not None:
-                        self.log_message.emit(f"  >> Row {row_idx+1}/{len(data_rows)}: {row}")
-                    ap, results = self._exec_sc(page, sc, row, row_idx)
-                    self._ar.extend(results)
-                    if ap:
-                        self._spass += 1
-                    else:
-                        self._sfail += 1
-                    self.scenario_completed.emit(sc.scenario_Name, ap)
+            for row_idx, row in enumerate(data_rows):
+                if row is not None:
+                    self.log_message.emit(f"  >> Row {row_idx+1}/{len(data_rows)}: {row}")
+                ap, results = self._exec_sc(page, sc, row, row_idx)
+                self._ar.extend(results)
+                if ap:
+                    self._spass += 1
+                else:
+                    self._sfail += 1
+                self.scenario_completed.emit(sc.scenario_Name, ap)
 
-                self.progress.emit(int((i + 1) / total * 100))
+            self._sc_done += 1
+            if self._sc_total > 0:
+                self.progress.emit(int(self._sc_done / self._sc_total * 100))
 
-            br.close()
+        br.close()
 
-        dur = time.time() - t0
+    def _finalize_result(self, name: str, total_scenarios: int) -> TestResult:
+        dur = time.time() - self._t0
         ta = len(self._ar)
         pa = sum(1 for r in self._ar if r.is_passed())
         result = TestResult(
-            test_Name=f"Test Run {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-            total_Scenarios=total, passed_Scenarios=self._spass, failed_Scenarios=self._sfail,
+            test_Name=name,
+            total_Scenarios=total_scenarios, passed_Scenarios=self._spass, failed_Scenarios=self._sfail,
             total_Steps=self._sp + self._sf, passed_Steps=self._sp, failed_Steps=self._sf,
             total_Assertions=ta, passed_Assertions=pa, failed_Assertions=ta - pa,
             execution_Duration_Sec=round(dur, 2), assertion_Results=self._ar)
@@ -385,4 +439,5 @@ class TestRunner(QObject):
                                 ap = False
 
         return ap, all_r
+
 
